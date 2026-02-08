@@ -26,7 +26,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'src.Infrastructure.Identity',
-    'src.Presentation', # Register the main app
+    'src.Presentation',
 ]
 
 MIDDLEWARE = [

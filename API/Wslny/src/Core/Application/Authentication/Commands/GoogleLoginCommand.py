@@ -33,7 +33,7 @@ class GoogleLoginCommandHandler:
                     'first_name': first_name,
                     'last_name': last_name,
                     'is_active': True,
-                    'role': Roles.USER # Default role
+                    'role': Roles.USER 
                 }
             )
             
