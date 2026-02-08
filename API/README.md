@@ -44,14 +44,6 @@ A standardized wrapper for all service responses, found in `src/Core/Application
 - Returns type-safe data or a list of errors.
 - Avoids using Exceptions for control flow.
 
-## Getting Started
-
-### Prerequisites
-
-- Python 3.11+
-- Docker & Docker Compose (optional but recommended)
-- PostgreSQL (if running locally without Docker)
-
 ### Running with Docker (Recommended)
 
 1. Navigate to the project directory:
