@@ -1,7 +1,9 @@
 from dataclasses import dataclass
 from src.Core.Application.Common.Interfaces.CQRS import ICommand
-from src.Core.Application.Common.Models.Result import Result, Error
+from src.Core.Application.Common.Models.Result import Result
 from src.Core.Application.Authentication.Common.AuthenticationResult import AuthenticationResult
+from src.Core.Domain.Errors.DomainErrors import AuthErrors
+from src.Core.Domain.Constants.Roles import Roles
 from django.contrib.auth import get_user_model
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -14,14 +16,14 @@ class RegisterCommand(ICommand):
     first_name: str
     last_name: str
     mobile_number: str
-    role: str
     gender: str = None
     address: str = None
+    role: str = Roles.USER 
 
 class RegisterCommandHandler:
     def handle(self, command: RegisterCommand) -> Result[AuthenticationResult]:
         if User.objects.filter(email=command.email).exists():
-            return Result.failure(Error("User.Exists", "User with this email already exists"))
+            return Result.failure(AuthErrors.UserExists)
 
         user = User.objects.create_user(
             email=command.email,

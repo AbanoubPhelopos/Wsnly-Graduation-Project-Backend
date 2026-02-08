@@ -1,7 +1,8 @@
 from dataclasses import dataclass
 from src.Core.Application.Common.Interfaces.CQRS import ICommand
-from src.Core.Application.Common.Models.Result import Result, Error
+from src.Core.Application.Common.Models.Result import Result
 from src.Core.Application.Authentication.Common.AuthenticationResult import AuthenticationResult
+from src.Core.Domain.Errors.DomainErrors import AuthErrors
 from django.contrib.auth import authenticate
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -15,7 +16,7 @@ class LoginCommandHandler:
         user = authenticate(email=command.email, password=command.password)
         
         if user is None:
-            return Result.failure(Error("Auth.Failed", "Invalid credentials"))
+            return Result.failure(AuthErrors.InvalidCredentials)
             
         refresh = RefreshToken.for_user(user)
         

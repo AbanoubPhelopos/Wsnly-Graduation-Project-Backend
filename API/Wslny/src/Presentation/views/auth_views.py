@@ -3,6 +3,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework_simplejwt.tokens import RefreshToken
+from src.Core.Domain.Constants.Roles import Roles
 
 from src.Core.Application.Authentication.Commands.RegisterCommand import RegisterCommand, RegisterCommandHandler
 from src.Core.Application.Authentication.Commands.LoginCommand import LoginCommand, LoginCommandHandler
@@ -21,7 +22,7 @@ class RegisterView(APIView):
             mobile_number=request.data.get('mobile_number'),
             gender=request.data.get('gender'),
             address=request.data.get('address'),
-            role=request.data.get('role', 'User')
+            role=request.data.get('role', Roles.USER)
         )
         
         handler = RegisterCommandHandler()

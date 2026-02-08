@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from src.Core.Application.Common.Interfaces.CQRS import IQuery
-from src.Core.Application.Common.Models.Result import Result, Error
+from src.Core.Application.Common.Models.Result import Result
+from src.Core.Domain.Errors.DomainErrors import UserErrors
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
@@ -33,4 +34,4 @@ class GetProfileQueryHandler:
                 role=user.role
             ))
         except User.DoesNotExist:
-            return Result.failure(Error("User.NotFound", "User not found"))
+            return Result.failure(UserErrors.NotFound)

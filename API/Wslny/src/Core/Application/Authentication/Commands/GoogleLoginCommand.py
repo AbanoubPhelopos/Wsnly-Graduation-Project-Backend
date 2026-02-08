@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from src.Core.Application.Common.Interfaces.CQRS import ICommand
 from src.Core.Application.Common.Models.Result import Result, Error
 from src.Core.Application.Authentication.Common.AuthenticationResult import AuthenticationResult
+from src.Core.Domain.Errors.DomainErrors import AuthErrors
+from src.Core.Domain.Constants.Roles import Roles
 from django.contrib.auth import get_user_model
 from rest_framework_simplejwt.tokens import RefreshToken
 from google.oauth2 import id_token
@@ -18,8 +20,7 @@ class GoogleLoginCommandHandler:
     def handle(self, command: GoogleLoginCommand) -> Result[AuthenticationResult]:
         try:
             # Verify the token
-            # CLIENT_ID should be in settings, utilizing hardcoded or env var for now
-            # In production, use settings.GOOGLE_CLIENT_ID
+            # CLIENT_ID should be in settings
             id_info = id_token.verify_oauth2_token(command.id_token, requests.Request())
             
             email = id_info['email']
@@ -32,7 +33,7 @@ class GoogleLoginCommandHandler:
                     'first_name': first_name,
                     'last_name': last_name,
                     'is_active': True,
-                    'role': 'User' # Default role for Google Login
+                    'role': Roles.USER # Default role
                 }
             )
             
@@ -44,6 +45,6 @@ class GoogleLoginCommandHandler:
             ))
             
         except ValueError as e:
-            return Result.failure(Error("Auth.GoogleFailed", f"Invalid Google Token: {str(e)}"))
+            return Result.failure(AuthErrors.GoogleTokenInvalid)
         except Exception as e:
             return Result.failure(Error("Auth.Error", str(e)))

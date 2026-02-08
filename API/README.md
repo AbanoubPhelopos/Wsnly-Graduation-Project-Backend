@@ -1,92 +1,89 @@
 # Wslny API
 
-The `Wslny` backend is a Django-based application structured with **Clean Architecture** principles and implements the **CQRS (Command-Query Responsibility Segregation)** pattern. It aims to provide a robust, scalable backend for the Wslny platform.
+The **Wslny API** is a robust, scalable backend service built with **Django Rest Framework** (DRF), designed to power the Wslny platform.
 
-## Architecture & Design Patterns
+It is architected using **Clean Architecture** principles and implements the **CQRS (Command-Query Responsibility Segregation)** pattern to ensure separation of concerns, maintainability, and testability.
 
-The project follows a multilayered class library approach, ensuring separation of concerns and maintainability.
+## 🚀 Key Features
+
+*   **Clean Architecture**: Separation into `Domain`, `Application`, `Infrastructure`, and `Presentation` layers.
+*   **CQRS Pattern**: Distinct models for reading (Queries) and writing (Commands) data.
+*   **Result Pattern**: A standardized wrapper for all API responses, ensuring consistent error handling and type safety.
+*   **Authentication & Identity**:
+    *   JWT (JSON Web Tokens) Authentication.
+    *   Google OAuth Integration.
+    *   Custom User Model (Email-based) with specific profile fields.
+    *   Role-Based Access Control (Admin/User).
+*   **Containerization**: Fully Dockerized setup with `docker-compose` for easy deployment and development.
+*   **Automated Weeding**: Automatic creation of a default Admin user on startup.
+
+## 🏗 Architecture Overview
+
+The project follows a "Multilayer Class Library" style adapted for Django:
 
 ### Folder Structure (`src/`)
 
-- **Core/Domain**:
-  - The innermost layer.
-  - Contains **Entities**, **Value Objects**, and core business logic.
-  - No dependencies on Application, Infrastructure, or Presentation layers.
+*   **Core/Domain**:
+    *   The heart of the application. Contains **Entities**, **Value Objects**, **Constants** (e.g., Roles), and **Errors**.
+    *   Completely independent of other layers.
+*   **Core/Application**:
+    *   Orchestrates application logic.
+    *   Contains **CQRS Handlers** (Commands & Queries), **Interfaces**, **DTOs**, and the **Result Pattern**.
+    *   Dependent only on the Domain layer.
+*   **Infrastructure**:
+    *   Implements interfaces defined in the Application layer.
+    *   Handles database access, external APIs (e.g., Google Auth), and Identity configuration.
+    *   Contains persistence models and management commands.
+*   **Presentation**:
+    *   The entry point (Django Project).
+    *   Contains **Views** (Controllers), **URLs**, `settings.py`, and `permissions.py`.
+    *   Maps HTTP requests to Application Commands/Queries.
 
-- **Core/Application**:
-  - Contains **Use Cases**, **CQRS Handlers**, **Interfaces**, and **DTOs**.
-  - **Common/Intefraces**: Defines abstractions (e.g., `ICommand`, `IQuery`).
-  - **Common/Models**: Includes the **Result Pattern** wrapper for standardized API responses.
-  - Dependent only on Domain.
+## 🔐 Authentication & Roles
 
-- **Infrastructure**:
-  - Implements interfaces defined in the Application layer (e.g., Repositories, External Services, Email, File Storage).
-  - Handles database interactions.
-  - Dependent on Domain and Application.
+The system supports two primary roles:
+1.  **User**: Standard user access. Can register manually or via Google used for general app usage.
+2.  **Admin**: System administrator. Has access to user management and role assignment.
 
-- **Presentation**:
-  - The entry point for the application (Django project configuration).
-  - Contains **Controllers** (Views/ViewSets) that map HTTP requests to Application commands/queries.
-  - Handles routing (`urls.py`) and configuration (`settings.py`).
+### Auth Endpoints
+*   `POST /api/auth/register`: Register a new user.
+*   `POST /api/auth/login`: Login with email/password.
+*   `POST /api/auth/google-login`: Login/Register with Google ID Token.
+*   `GET /api/auth/profile`: Get current user profile.
 
-### Key Patterns
+### Admin Endpoints
+*   `POST /api/admin/change-role`: Change a user's role (e.g., promote to Admin).
+*   `GET /api/admin/users`: List all users in the system.
 
-#### CQRS (Command-Query Responsibility Segregation)
-Operations are split into two distinct models:
-- **Commands**: Modify state (Create, Update, Delete). Return a `Result` indicating success or failure.
-- **Queries**: Read state. Return data without side effects.
+## 🛠 Getting Started
 
-Defines `ICommand`, `IQuery`, `ICommandHandler`, and `IQueryHandler` interfaces in `src/Core/Application/Common/Interfaces/CQRS.py`.
-
-#### Result Pattern
-A standardized wrapper for all service responses, found in `src/Core/Application/Common/Models/Result.py`.
-- Encapsulates success/failure state.
-- Returns type-safe data or a list of errors.
-- Avoids using Exceptions for control flow.
+### Prerequisites
+*   Docker & Docker Compose
 
 ### Running with Docker (Recommended)
 
-1. Navigate to the project directory:
-   ```bash
-   cd API/Wslny
-   ```
+1.  **Clone the repository** and navigate to `API/Wslny`.
+2.  **Start the application**:
+    ```bash
+    docker-compose up --build
+    ```
+    *   This will build the Python image, start PostgreSQL, apply migrations, and **seed the default admin user automatically**.
 
-2. Build and start the containers:
-   ```bash
-   docker-compose up --build
-   ```
+3.  **Access the API**:
+    *   The server runs at `http://localhost:8000`.
 
-The API will be available at `http://localhost:8000`.
+## 💻 Development Workflow
 
-### Running Locally
+1.  **Define Domain**: Add entities or constants in `Core/Domain`.
+2.  **Define Contract**: Create Interfaces and DTOs in `Core/Application`.
+3.  **Implement Logic**: Create Command/Query Handlers in `Core/Application`.
+4.  **Implement Infrastructure**: detailed implementation in `Infrastructure` (if needed).
+5.  **Expose API**: Create Views and URLs in `Presentation`.
 
-1. Create a virtual environment:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
+## 📦 Tech Stack
 
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. Configure database settings in `src/Presentation/settings.py` if not using the default Docker setup.
-
-4. Apply migrations:
-   ```bash
-   python manage.py migrate
-   ```
-
-5. Run the server:
-   ```bash
-   python manage.py runserver
-   ```
-
-## Development Workflow
-
-1. Define **Entities** in `Core/Domain`.
-2. Define **DTOs** and **Interfaces** in `Core/Application`.
-3. Implement **Command/Query Handlers** in `Core/Application`.
-4. Implement **Infrastructure** (Repositories) in `Infrastructure`.
-5. Expose functionality via **API Views** in `Presentation`.
+*   **Language**: Python 3.11
+*   **Framework**: Django 4.2+, Django Rest Framework
+*   **Auth**: SimpleJWT, Google Auth
+*   **Database**: PostgreSQL 15
+*   **Containerization**: Docker

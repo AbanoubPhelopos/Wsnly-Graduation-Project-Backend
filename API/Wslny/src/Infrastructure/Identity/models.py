@@ -1,6 +1,7 @@
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
 from django.utils.translation import gettext_lazy as _
+from src.Core.Domain.Constants.Roles import Roles
 
 class CustomUserManager(BaseUserManager):
     def create_user(self, email, password=None, **extra_fields):
@@ -18,7 +19,7 @@ class CustomUserManager(BaseUserManager):
     def create_superuser(self, email, password=None, **extra_fields):
         extra_fields.setdefault('is_staff', True)
         extra_fields.setdefault('is_superuser', True)
-        extra_fields.setdefault('role', 'Admin')
+        extra_fields.setdefault('role', Roles.ADMIN)
 
         if extra_fields.get('is_staff') is not True:
             raise ValueError(_('Superuser must have is_staff=True.'))
@@ -29,8 +30,8 @@ class CustomUserManager(BaseUserManager):
 
 class User(AbstractBaseUser, PermissionsMixin):
     ROLE_CHOICES = (
-        ('Admin', 'Admin'),
-        ('User', 'User'),
+        (Roles.ADMIN, 'Admin'),
+        (Roles.USER, 'User'),
     )
 
     email = models.EmailField(_('email address'), unique=True)
@@ -39,7 +40,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     mobile_number = models.CharField(max_length=20)
     gender = models.CharField(max_length=10, blank=True, null=True)
     address = models.TextField(blank=True, null=True)
-    role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='User')
+    role = models.CharField(max_length=10, choices=ROLE_CHOICES, default=Roles.USER)
 
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)

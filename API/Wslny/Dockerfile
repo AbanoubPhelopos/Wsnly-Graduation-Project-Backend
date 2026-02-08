@@ -15,8 +15,13 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 # Copy project
 COPY . /app/
 
+# Make entrypoint executable
+RUN chmod +x /app/entrypoint.sh
+
 # Expose port (adjust if needed)
 EXPOSE 8000
+
+ENTRYPOINT ["/app/entrypoint.sh"]
 
 # Run gunicorn (or manage.py runserver for dev)
 # CMD ["gunicorn", "--bind", "0.0.0.0:8000", "Wslny.src.Presentation.wsgi:application"]
