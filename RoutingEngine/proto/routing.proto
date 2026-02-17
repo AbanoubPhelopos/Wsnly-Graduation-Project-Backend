@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package routing;
+
+// The routing service definition.
+service RoutingService {
+  // Calculates the best route between two points
+  rpc GetRoute (RouteRequest) returns (RouteResponse) {}
+}
+
+// The request message containing the user's start and end points
+message RouteRequest {
+  Point origin = 1;
+  Point destination = 2;
+  string mode = 3; // e.g., "fastest", "cheapest", "hybrid"
+}
+
+// The response message containing the calculated route
+message RouteResponse {
+  repeated RouteStep steps = 1;
+  double total_distance_meters = 2;
+  double total_duration_seconds = 3;
+}
+
+// Representation of a geographical point
+message Point {
+  double latitude = 1;
+  double longitude = 2;
+}
+
+// A single step in the route
+message RouteStep {
+  string instruction = 1; // e.g., "Walk to Sadat Station"
+  double distance_meters = 2;
+  double duration_seconds = 3;
+  Point start_location = 4;
+  Point end_location = 5;
+  string type = 6; // "WALK", "METRO", "BUS", "MICROBUS"
+  string line_name = 7; // e.g., "Line 2", "Bus 105"
+}

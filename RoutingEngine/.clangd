@@ -1,0 +1,16 @@
+CompileFlags:
+  Compiler: C:/msys64/mingw64/bin/g++.exe
+  CompilationDatabase: None
+  Add:
+    - -std=c++20
+    - -IC:/Users/Hp/Desktop/projects/Graduation-Project/RoutingEngine/include
+    - -IC:/Users/Hp/Desktop/projects/Graduation-Project/RoutingEngine/build/generated
+    - -IC:/msys64/mingw64/include/c++/15.2.0
+    - -IC:/msys64/mingw64/include/c++/15.2.0/x86_64-w64-mingw32
+    - -IC:/msys64/mingw64/include/c++/15.2.0/backward
+    - -D__MMX__
+    - -D__SSE__
+    - -D__SSE2__
+    - -IC:/msys64/mingw64/include
+    - -IC:/msys64/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include-fixed
+    - --target=x86_64-w64-mingw32
