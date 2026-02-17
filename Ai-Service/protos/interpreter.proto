@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package interpreter;
+
+service TransitInterpreter {
+  // The main RPC call
+  rpc ExtractRoute (RouteRequest) returns (RouteResponse) {}
+}
+
+message RouteRequest {
+  string text = 1;  // e.g., "I want to go to Maadi from Dokki"
+}
+
+message RouteResponse {
+  string from_location = 1;  // "Dokki"
+  string to_location = 2;    // "Maadi"
+  string intent = 3;         // "fastest" (optional, for future use)
+}
