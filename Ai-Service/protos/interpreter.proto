@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package interpreter;
+
+service TransitInterpreter {
+  // The main RPC call
+  rpc ExtractRoute (RouteRequest) returns (RouteResponse) {}
+}
+
+message RouteRequest {
+  string text = 1;  // e.g., "I want to go to Maadi from Dokki"
+}
+
+message RouteResponse {
+  string from_location = 1;
+  string to_location = 2;
+  Location from_coordinates = 6;
+  Location to_coordinates = 7;
+  repeated RouteStep steps = 3;
+  double total_distance_meters = 4;
+  double total_duration_seconds = 5;
+}
+
+message RouteStep {
+  string instruction = 1;
+  double distance_meters = 2;
+  double duration_seconds = 3;
+  Location start_location = 4;
+  Location end_location = 5;
+  string type = 6;
+  string line_name = 7;
+}
+
+message Location {
+  double latitude = 1;
+  double longitude = 2;
+}
