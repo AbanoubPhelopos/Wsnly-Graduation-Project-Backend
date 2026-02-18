@@ -18,7 +18,7 @@ COPY . .
 
 RUN mkdir -p build && cd build && \
     cmake .. && \
-    make -j$(nproc)
+    make -j1
 
 FROM debian:bookworm-slim
 
