@@ -1,2 +1,11 @@
-Ai-Service\TransitModel\model.safetensors
-Ai-Service\TransitModel\config.json
+Ai-Service/TransitModel/model.safetensors
+Ai-Service/TransitModel/config.json
+Ai-Service/TransitModel/tokenizer.json
+Ai-Service/TransitModel/vocab.txt
+Ai-Service/TransitModel/special_tokens_map.json
+Ai-Service/TransitModel/tokenizer_config.json
+.env
+__pycache__/
+*.pyc
+*_pb2.py
+*_pb2_grpc.py
