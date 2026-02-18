@@ -1,0 +1,6 @@
+grpcio
+grpcio-tools
+transformers
+torch --index-url https://download.pytorch.org/whl/cpu  # Use CPU version for lighter image if no GPU
+safetensors
+googlemaps
