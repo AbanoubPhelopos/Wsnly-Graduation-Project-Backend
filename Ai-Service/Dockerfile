@@ -1,7 +1,12 @@
+<<<<<<< HEAD
+=======
+# Use a lightweight Python image
+>>>>>>> a42657590d19c6872223858fc3c110df816e9344
 FROM python:3.9-slim
 
 WORKDIR /app
 
+<<<<<<< HEAD
 # Install system dependencies for grpc
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
@@ -36,3 +41,22 @@ ENV PYTHONPATH=/app
 EXPOSE 50052
 
 CMD ["python", "Server.py"]
+=======
+# Install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the model files and code
+COPY my_transit_model/ ./my_transit_model/
+COPY protos/ ./protos/
+COPY server.py .
+
+# Generate gRPC code inside the container
+RUN python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. protos/interpreter.proto
+
+# Expose the gRPC port
+EXPOSE 50051
+
+# Start the service
+CMD ["python", "server.py"]
+>>>>>>> a42657590d19c6872223858fc3c110df816e9344

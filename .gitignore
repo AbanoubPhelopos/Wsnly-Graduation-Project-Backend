@@ -1,4 +1,5 @@
 Ai-Service/TransitModel/model.safetensors
+<<<<<<< HEAD
 Ai-Service/TransitModel/config.json
 Ai-Service/TransitModel/tokenizer.json
 Ai-Service/TransitModel/vocab.txt
@@ -9,3 +10,6 @@ __pycache__/
 *.pyc
 *_pb2.py
 *_pb2_grpc.py
+=======
+Ai-Service/TransitModel/config.json
+>>>>>>> a42657590d19c6872223858fc3c110df816e9344
