@@ -96,6 +96,7 @@ mkdir build && cd build
 cmake ..
 make -j4
 
+# Place GTFS files in a "GTFS" folder, or set the env var:
 export GTFS_PATH=/path/to/gtfs
 
 ./routing_server

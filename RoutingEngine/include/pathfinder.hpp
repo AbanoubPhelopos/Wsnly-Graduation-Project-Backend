@@ -4,20 +4,20 @@
 #include "graph.hpp"
 #include <vector>
 
-// Struct to hold the result of a path search
-struct PathResult {
-  std::vector<NodeID> path_nodes;
-  std::vector<Edge> path_edges; // To keep track of which edge was taken (needed
-                                // for instructions)
-  double total_distance;
-  double total_duration;
-  bool found;
-};
-
 class Pathfinder {
 public:
-  static PathResult FindPath(const Graph &graph, NodeID startInfo,
-                             NodeID endInfo);
+  // Run A* for a single mode mask. Returns a RouteResult with segments.
+  static RouteResult FindPath(const Graph &graph, NodeID startNode,
+                              NodeID endNode, int modeMask, double walkStart,
+                              double walkEnd, double sLat, double sLon,
+                              double dLat, double dLon,
+                              const std::string &typeLabel);
+
+  // Run all 4 route searches (bus, metro, microbus, optimal).
+  // sLat/sLon/dLat/dLon are the raw user coordinates.
+  static std::vector<RouteResult> FindAllRoutes(const Graph &graph, double sLat,
+                                                double sLon, double dLat,
+                                                double dLon);
 };
 
 #endif // PATHFINDER_HPP

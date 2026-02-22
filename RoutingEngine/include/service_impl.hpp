@@ -5,7 +5,6 @@
 #include "routing.grpc.pb.h"
 #include <grpcpp/grpcpp.h>
 
-
 using grpc::Server;
 using grpc::ServerBuilder;
 using grpc::ServerContext;
@@ -24,4 +23,4 @@ private:
   const Graph &graph_;
 };
 
-#endif // SERVICE_IMPL_HPP
+#endif

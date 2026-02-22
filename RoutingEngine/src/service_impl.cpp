@@ -5,58 +5,62 @@
 Status RoutingServiceImpl::GetRoute(ServerContext *context,
                                     const RouteRequest *request,
                                     RouteResponse *reply) {
-  std::cout << "Received request: From (" << request->origin().latitude()
-            << ", " << request->origin().longitude() << ") to ("
-            << request->destination().latitude() << ", "
-            << request->destination().longitude() << ")" << std::endl;
+  double sLat = request->origin().latitude();
+  double sLon = request->origin().longitude();
+  double dLat = request->destination().latitude();
+  double dLon = request->destination().longitude();
 
-  NodeID startNode = graph_.FindNearestNode(request->origin().latitude(),
-                                            request->origin().longitude());
-  NodeID endNode = graph_.FindNearestNode(request->destination().latitude(),
-                                          request->destination().longitude());
+  std::cout << "Received request: From (" << sLat << ", " << sLon << ") to ("
+            << dLat << ", " << dLon << ")" << std::endl;
 
-  if (startNode == -1 || endNode == -1) {
-    return Status(grpc::StatusCode::NOT_FOUND,
-                  "Could not map coordinates to graph nodes.");
+  // Run all route searches
+  auto results = Pathfinder::FindAllRoutes(graph_, sLat, sLon, dLat, dLon);
+
+  // Find the best result (lowest duration)
+  const RouteResult *best = nullptr;
+  for (const auto &r : results) {
+    if (r.totalDuration < INF) {
+      if (!best || r.totalDuration < best->totalDuration) {
+        best = &r;
+      }
+    }
   }
 
-  std::cout << "Mapped to Nodes: " << startNode << " -> " << endNode
-            << std::endl;
-
-  PathResult result = Pathfinder::FindPath(graph_, startNode, endNode);
-
-  if (!result.found) {
+  if (!best) {
     return Status(grpc::StatusCode::NOT_FOUND,
                   "No path found between the specified locations.");
   }
 
-  reply->set_total_distance_meters(result.total_distance);
-  reply->set_total_duration_seconds(result.total_duration);
+  // Map best RouteResult into proto response
+  reply->set_total_duration_seconds(best->totalDuration);
+  reply->set_total_distance_meters(0); // TODO: compute total distance
 
-  for (size_t i = 0; i < result.path_nodes.size(); ++i) {
-    if (i < result.path_edges.size()) {
-      auto *step = reply->add_steps();
-      const Edge &edge = result.path_edges[i];
-      const Node *u = graph_.GetNode(result.path_nodes[i]);
-      const Node *v = graph_.GetNode(result.path_nodes[i + 1]);
+  for (const auto &seg : best->segments) {
+    auto *step = reply->add_steps();
 
-      std::string destName = v ? v->name : "next stop";
-      step->set_instruction("Take " + edge.type + " " + edge.line_name +
-                            " to " + destName);
-      step->set_distance_meters(0);
-      step->set_duration_seconds(edge.weight);
-      step->set_type(edge.type);
-      step->set_line_name(edge.line_name);
+    double segDist =
+        haversine(seg.startLat, seg.startLon, seg.endLat, seg.endLon);
 
-      if (u) {
-        step->mutable_start_location()->set_latitude(u->lat);
-        step->mutable_start_location()->set_longitude(u->lon);
-      }
-      if (v) {
-        step->mutable_end_location()->set_latitude(v->lat);
-        step->mutable_end_location()->set_longitude(v->lon);
-      }
-    }
+    step->set_instruction("Take " + seg.method + " to " + seg.endName);
+    step->set_distance_meters(segDist);
+
+    // Estimate duration from distance & mode speed
+    double speed = WALK_SPEED_MPS;
+    if (seg.method == "bus")
+      speed = AVG_BUS_SPEED_MPS;
+    if (seg.method == "metro")
+      speed = METRO_SPEED_MPS;
+    if (seg.method == "microbus")
+      speed = MICROBUS_SPEED_MPS;
+    step->set_duration_seconds(segDist > 0 ? segDist / speed : 0);
+
+    step->set_type(seg.method);
+    step->set_line_name(""); // line name not tracked in new model
+
+    step->mutable_start_location()->set_latitude(seg.startLat);
+    step->mutable_start_location()->set_longitude(seg.startLon);
+    step->mutable_end_location()->set_latitude(seg.endLat);
+    step->mutable_end_location()->set_longitude(seg.endLon);
   }
 
   return Status::OK;
