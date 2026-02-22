@@ -16,7 +16,6 @@ RUN pip install --no-cache-dir -r Requirements.txt
 COPY Ai-Service/TransitModel/ ./TransitModel/
 COPY Ai-Service/Server.py .
 COPY Ai-Service/geocoder.py .
-COPY Ai-Service/routing_client.py .
 
 # Copy Proto definitions
 # We copy them into a structure structure that works for generation
