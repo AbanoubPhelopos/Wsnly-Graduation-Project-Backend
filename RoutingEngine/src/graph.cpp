@@ -3,7 +3,6 @@
 #include <cmath>
 #include <fstream>
 #include <iostream>
-#include <sstream>
 
 // --- CSV Parsing Implementation ---
 
@@ -97,6 +96,78 @@ NodeID Graph::findNearestNode(double lat, double lon, int modeMask) const {
   if (bestNode == -1 || minDist > 5000.0)
     return findNearestNode(lat, lon);
   return bestNode;
+}
+
+std::vector<std::pair<NodeID, double>>
+Graph::getNodesWithinRadius(double lat, double lon, double radius) const {
+  std::vector<std::pair<NodeID, double>> result;
+  int cx = (int)std::floor(lon / CELL_SIZE);
+  int cy = (int)std::floor(lat / CELL_SIZE);
+
+  // Search 3x3 surrounding cells
+  for (int dx = -1; dx <= 1; ++dx) {
+    for (int dy = -1; dy <= 1; ++dy) {
+      long long key = (long long)(cy + dy) * 1000000LL + (cx + dx);
+      auto it = spatial_grid_.find(key);
+      if (it == spatial_grid_.end())
+        continue;
+
+      for (NodeID j : it->second) {
+        double dist = haversine(lat, lon, nodes_[j].lat, nodes_[j].lon);
+        if (dist <= radius) {
+          result.push_back({j, dist});
+        }
+      }
+    }
+  }
+  return result;
+}
+
+std::vector<std::pair<NodeID, double>>
+Graph::getNodesWithinRadius(double lat, double lon, double radius,
+                            int modeMask) const {
+  std::vector<std::string> prefixes;
+  if (modeMask & METRO)
+    prefixes.push_back("M_");
+  if (modeMask & BUS)
+    prefixes.push_back("B1_");
+  if (modeMask & MICROBUS)
+    prefixes.push_back("MB_");
+
+  auto matchesMode = [&](const std::string &stop_id) {
+    for (const auto &p : prefixes)
+      if (stop_id.substr(0, p.size()) == p)
+        return true;
+    return false;
+  };
+
+  std::vector<std::pair<NodeID, double>> result;
+  int cx = (int)std::floor(lon / CELL_SIZE);
+  int cy = (int)std::floor(lat / CELL_SIZE);
+
+  for (int dx = -1; dx <= 1; ++dx) {
+    for (int dy = -1; dy <= 1; ++dy) {
+      long long key = (long long)(cy + dy) * 1000000LL + (cx + dx);
+      auto it = spatial_grid_.find(key);
+      if (it == spatial_grid_.end())
+        continue;
+
+      for (NodeID j : it->second) {
+        if (!matchesMode(nodes_[j].gtfs_stop_id))
+          continue;
+        double dist = haversine(lat, lon, nodes_[j].lat, nodes_[j].lon);
+        if (dist <= radius) {
+          result.push_back({j, dist});
+        }
+      }
+    }
+  }
+
+  // Fallback if empty and mode was specified: just return nodes without mode
+  // filter
+  if (result.empty())
+    return getNodesWithinRadius(lat, lon, radius);
+  return result;
 }
 
 const Node *Graph::GetNode(NodeID id) const {
@@ -239,6 +310,7 @@ void Graph::loadStops(const std::string &filename) {
         stop_id_map[stop_id] = node.id;
         stop_name_map[stop_name] = node.id;
         nodes_.push_back(node);
+        spatial_grid_[getCellKey(lat, lon)].push_back(node.id);
       }
     }
   }
@@ -332,31 +404,17 @@ void Graph::generateTransferEdges() {
             << MAX_WALK_DISTANCE << "m)..." << std::endl;
   int transferCount = 0;
 
-  // --- Spatial Grid Index ---
-  const double cellSize = MAX_WALK_DISTANCE / 111000.0; // degrees
-  std::unordered_map<long long, std::vector<NodeID>> grid;
-
-  auto cellKey = [&](double lat, double lon) -> long long {
-    int cx = (int)std::floor(lon / cellSize);
-    int cy = (int)std::floor(lat / cellSize);
-    return (long long)cy * 1000000LL + cx;
-  };
-
-  // Insert all nodes into grid
+  // For each node, check neighboring grid cells (3x3) using pre-built
+  // spatial_grid_
   for (size_t i = 0; i < nodes_.size(); ++i) {
-    grid[cellKey(nodes_[i].lat, nodes_[i].lon)].push_back((NodeID)i);
-  }
-
-  // For each node, check neighboring grid cells (3x3)
-  for (size_t i = 0; i < nodes_.size(); ++i) {
-    int cx = (int)std::floor(nodes_[i].lon / cellSize);
-    int cy = (int)std::floor(nodes_[i].lat / cellSize);
+    int cx = (int)std::floor(nodes_[i].lon / CELL_SIZE);
+    int cy = (int)std::floor(nodes_[i].lat / CELL_SIZE);
 
     for (int dx = -1; dx <= 1; ++dx) {
       for (int dy = -1; dy <= 1; ++dy) {
         long long key = (long long)(cy + dy) * 1000000LL + (cx + dx);
-        auto it = grid.find(key);
-        if (it == grid.end())
+        auto it = spatial_grid_.find(key);
+        if (it == spatial_grid_.end())
           continue;
 
         for (NodeID j : it->second) {

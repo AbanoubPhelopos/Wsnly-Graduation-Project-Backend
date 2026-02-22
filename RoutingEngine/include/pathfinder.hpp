@@ -7,10 +7,8 @@
 class Pathfinder {
 public:
   // Run A* for a single mode mask. Returns a RouteResult with segments.
-  static RouteResult FindPath(const Graph &graph, NodeID startNode,
-                              NodeID endNode, int modeMask, double walkStart,
-                              double walkEnd, double sLat, double sLon,
-                              double dLat, double dLon,
+  static RouteResult FindPath(const Graph &graph, double sLat, double sLon,
+                              double dLat, double dLon, int modeMask,
                               const std::string &typeLabel);
 
   // Run all 4 route searches (bus, metro, microbus, optimal).
