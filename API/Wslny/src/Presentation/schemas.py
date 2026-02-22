@@ -91,3 +91,21 @@ class AuthSuccessResponseSerializer(serializers.Serializer):
 
 class ValidationErrorsResponseSerializer(serializers.Serializer):
     errors = serializers.ListField(child=serializers.DictField())
+
+
+class MessageResponseSerializer(serializers.Serializer):
+    message = serializers.CharField()
+
+
+class ChangeUserRoleRequestSerializer(serializers.Serializer):
+    user_id = serializers.IntegerField()
+    new_role = serializers.CharField()
+
+
+class UserSummarySerializer(serializers.Serializer):
+    id = serializers.IntegerField(required=False)
+    email = serializers.EmailField()
+    first_name = serializers.CharField()
+    last_name = serializers.CharField()
+    mobile_number = serializers.CharField(required=False)
+    role = serializers.CharField(required=False)

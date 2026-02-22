@@ -21,11 +21,27 @@ from src.Core.Application.Admin.Queries.GetUsersQuery import (
     GetUsersQueryHandler,
 )
 from src.Infrastructure.History.models import RouteHistory
+from src.Presentation.schemas import (
+    ChangeUserRoleRequestSerializer,
+    MessageResponseSerializer,
+    UserSummarySerializer,
+    ValidationErrorsResponseSerializer,
+)
 
 
 class ChangeUserRoleView(APIView):
     permission_classes = [IsAdminUser]
 
+    @extend_schema(
+        tags=["Admin"],
+        summary="Change user role",
+        request=ChangeUserRoleRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=MessageResponseSerializer),
+            400: OpenApiResponse(response=ValidationErrorsResponseSerializer),
+            403: OpenApiResponse(description="Forbidden"),
+        },
+    )
     def post(self, request):
         command = ChangeUserRoleCommand(
             user_id=request.data.get("user_id"), new_role=request.data.get("new_role")
@@ -48,6 +64,15 @@ class ChangeUserRoleView(APIView):
 class UserListView(APIView):
     permission_classes = [IsAdminUser]
 
+    @extend_schema(
+        tags=["Admin"],
+        summary="List users",
+        responses={
+            200: UserSummarySerializer(many=True),
+            400: OpenApiResponse(response=ValidationErrorsResponseSerializer),
+            403: OpenApiResponse(description="Forbidden"),
+        },
+    )
     def get(self, request):
         query = GetUsersQuery()
         handler = GetUsersQueryHandler()

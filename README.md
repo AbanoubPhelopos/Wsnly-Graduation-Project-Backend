@@ -1,76 +1,109 @@
-# 🚌 Wslny
+# Wslny - Microservices Transportation Platform
 
-**Wslny** is a comprehensive transportation platform designed to streamline commutes and logistics through a modern digital ecosystem for Greater Cairo's public transportation.
+Wslny is a multi-service transportation platform for Greater Cairo. It combines user-facing APIs, Arabic NLP location interpretation, and high-performance route computation into a single orchestrated system.
 
-The project is divided into two main components: a powerful backend API and a high-performance routing engine, supported by a web admin panel and a mobile application.
+## Services
 
-## 📂 Repository Structure
+- `API/Wslny` (Django + DRF): Public entrypoint, authentication, orchestration, history, admin analytics.
+- `Ai-Service` (Python + gRPC): Extracts origin/destination from natural language and geocodes to coordinates.
+- `RoutingEngine` (C++ + gRPC): Computes the best path from coordinates using A* over GTFS data.
 
-```
-Graduation-Project/
-├── API/             # Django backend — business logic, auth, data management
-├── RoutingEngine/   # C++ microservice — graph-based transit pathfinding
-└── README.md
-```
+## Why This Architecture
 
----
+- **Single entrypoint**: Frontend only calls Wslny API, so auth, validation, and security are centralized.
+- **Separation of concerns**: AI does NLP/geocoding only; RoutingEngine does routing only.
+- **Lower latency**: Internal communication uses gRPC/Protobuf over HTTP/2.
+- **Flexible flows**: Text requests call AI then routing; map-pin requests bypass AI and go directly to routing.
 
-### 1. `API` — Backend Service
+## End-to-End Communication
 
-The backend service responsible for business logic, data management, and authentication.
+```text
+Client (Web/Mobile)
+    |
+    | HTTP/JSON + JWT
+    v
+Wslny API (Orchestrator)
+    |\
+    | \-- gRPC --> Ai-Service (text flow only)
+    |
+    \---- gRPC --> RoutingEngine (text + map flows)
+            |
+            \--> GTFS graph loaded in-memory from RoutingEngine/Database
 
-| | |
-|---|---|
-| **Technology** | Python, Django, Django REST Framework |
-| **Architecture** | Clean Architecture with CQRS |
-
-**Key Features:**
-- Secure JWT-based authentication with Google Login support
-- Role management (Users, Admins)
-- Fully Dockerized deployment
-
-📖 See [`API/README.md`](API/README.md) for setup and API details.
-
----
-
-### 2. `RoutingEngine` — Pathfinding Microservice
-
-A high-performance C++ microservice that finds optimal routes across Cairo's multi-modal transit network.
-
-| | |
-|---|---|
-| **Technology** | C++17, CMake, gRPC, Protocol Buffers |
-| **Data Source** | GTFS (General Transit Feed Specification) |
-| **Algorithm** | Dijkstra's Shortest Path |
-
-**How It Works:**
-1. On startup, parses GTFS data (`stops`, `routes`, `trips`, `stop_times`) into a weighted directed graph.
-2. Receives routing requests via gRPC with origin/destination coordinates.
-3. Maps coordinates to the nearest transit stops using spatial lookup.
-4. Runs Dijkstra's algorithm to find the fastest path, returning step-by-step navigation with transport type, line name, and durations.
-
-📖 See [`RoutingEngine/README.md`](RoutingEngine/README.md) for architecture and algorithm details.
-
----
-
-## 🏗️ Architecture Overview
-
-```
-┌──────────────┐        gRPC         ┌──────────────────┐
-│   Django API │ ◄──────────────────► │  Routing Engine  │
-│  (Python)    │   (Proto Buffers)    │     (C++17)      │
-└──────┬───────┘                     └────────┬─────────┘
-       │                                      │
-       ▼                                      ▼
-   Database                             GTFS Data Files
-  (PostgreSQL)                     (stops, routes, trips...)
+Wslny API --> PostgreSQL (users, route history, analytics)
 ```
 
-## 🚀 Getting Started
+## Request Flows
 
-Each component has its own setup instructions. Refer to:
+### 1) Text Flow
 
-- **Backend**: [`API/README.md`](API/README.md)
-- **Routing Engine**: [`RoutingEngine/README.md`](RoutingEngine/README.md)
+`POST /api/route` with:
 
-Both services are containerized and can be run together with Docker Compose.
+```json
+{ "text": "عايز اروح العباسيه من مسكن" }
+```
+
+Pipeline:
+
+1. Wslny validates JWT and payload.
+2. Wslny calls AI gRPC `TransitInterpreter.ExtractRoute`.
+3. AI returns names + lat/lon for origin/destination.
+4. Wslny calls RoutingEngine gRPC `RoutingService.GetRoute`.
+5. Wslny returns final JSON route response.
+6. Wslny stores route history + latency metrics.
+
+### 2) Map-Pin Flow
+
+`POST /api/route` with:
+
+```json
+{
+  "origin": { "lat": 30.0539, "lon": 31.2383 },
+  "destination": { "lat": 30.0735, "lon": 31.2823 }
+}
+```
+
+Pipeline:
+
+1. Wslny validates JWT and coordinates.
+2. Wslny bypasses AI.
+3. Wslny calls RoutingEngine directly.
+4. Wslny returns final JSON route response.
+5. Wslny stores route history + latency metrics.
+
+## Main API Surfaces
+
+- Auth: `/api/auth/register`, `/api/auth/login`, `/api/auth/google-login`, `/api/auth/profile`
+- Routing: `/api/route`
+- Admin analytics:
+  - `/api/admin/analytics/routes/overview`
+  - `/api/admin/analytics/routes/top-routes`
+- OpenAPI:
+  - `/api/schema/`
+  - `/api/docs/`
+
+## Documentation Per Service
+
+- API gateway/orchestrator docs: `API/README.md`
+- Wslny runtime service docs: `API/Wslny/README.md`
+- AI service docs: `Ai-Service/README.md`
+- Routing engine docs: `RoutingEngine/README.md`
+
+## Running The Stack
+
+From repository root:
+
+```bash
+docker compose up --build
+```
+
+Required environment variables:
+
+- `GOOGLE_MAPS_API_KEY` for geocoding in AI service.
+
+## Operational Importance
+
+- **Correctness**: All route decisions happen from real coordinates.
+- **Scalability**: AI and routing can scale independently.
+- **Observability**: Route history records success/failure and latencies for each request.
+- **Admin intelligence**: Analytics endpoints are built from persisted history.
