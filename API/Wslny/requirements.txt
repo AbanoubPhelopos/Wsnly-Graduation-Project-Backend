@@ -5,3 +5,6 @@ gunicorn>=21.2
 djangorestframework-simplejwt>=5.3
 google-auth>=2.23
 requests>=2.31
+grpcio>=1.59.0
+grpcio-tools>=1.59.0
+drf-spectacular>=0.27.2

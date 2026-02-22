@@ -26,6 +26,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
     "rest_framework_simplejwt",
+    "drf_spectacular",
     "src.Infrastructure.Identity",
     "src.Infrastructure.History",
     "src.Presentation",
@@ -122,7 +123,8 @@ AUTH_USER_MODEL = "identity.User"
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
-    )
+    ),
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
 
 from datetime import timedelta
@@ -139,3 +141,25 @@ AI_GRPC_TIMEOUT_SECONDS = float(os.getenv("AI_GRPC_TIMEOUT_SECONDS", "5.0"))
 ROUTING_GRPC_HOST = os.getenv("ROUTING_GRPC_HOST", "routing-engine")
 ROUTING_GRPC_PORT = int(os.getenv("ROUTING_GRPC_PORT", "50051"))
 ROUTING_GRPC_TIMEOUT_SECONDS = float(os.getenv("ROUTING_GRPC_TIMEOUT_SECONDS", "10.0"))
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Wslny API",
+    "DESCRIPTION": "API documentation for Wslny orchestration and admin endpoints.",
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+    "SWAGGER_UI_SETTINGS": {
+        "persistAuthorization": True,
+    },
+    "SECURITY": [
+        {"BearerAuth": []},
+    ],
+    "COMPONENTS": {
+        "securitySchemes": {
+            "BearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT",
+            }
+        }
+    },
+}
