@@ -1,5 +1,6 @@
 #include <iostream>
 #include <string>
+#include <cstdlib>
 
 #include "graph.hpp"
 #include "service_impl.hpp"
@@ -21,6 +22,12 @@ void RunServer() {
   }
 
   graph.loadGTFS(gtfsPath);
+
+  if (graph.GetNodes().empty()) {
+    std::cerr << "Failed to load GTFS data from: " << gtfsPath << std::endl;
+    std::cerr << "Ensure GTFS_PATH points to a folder containing stops/routes/trips/stop_times CSV or TXT files." << std::endl;
+    std::exit(1);
+  }
 
   RoutingServiceImpl service(graph);
 

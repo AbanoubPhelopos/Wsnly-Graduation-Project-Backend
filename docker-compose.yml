@@ -21,8 +21,10 @@ services:
     container_name: routing-engine
     ports:
       - "50051:50051"
+    environment:
+      - GTFS_PATH=/app/Database
     healthcheck:
-      test: ["CMD-SHELL", "bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/50051'"]
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 50051"]
       interval: 10s
       timeout: 5s
       retries: 5
