@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  routing-engine:
+    build:
+      context: ./RoutingEngine
+      dockerfile: Dockerfile
+    ports:
+      - "50051:50051"
+    container_name: routing-engine
+
+  ai-service:
+    build:
+      context: .
+      dockerfile: Ai-Service/Dockerfile
+    ports:
+      - "50052:50052"
+    environment:
+      - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}
+      - ROUTING_SERVICE_ADDRESS=routing-engine:50051
+    depends_on:
+      - routing-engine
+    container_name: ai-service
