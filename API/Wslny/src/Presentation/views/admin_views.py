@@ -1,26 +1,42 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from django.db.models import Avg, Count
+from django.db.models.functions import TruncDate
+from django.utils.dateparse import parse_date
 from src.Presentation.permissions import IsAdminUser
-from src.Core.Application.Admin.Commands.ChangeUserRoleCommand import ChangeUserRoleCommand, ChangeUserRoleCommandHandler
-from src.Core.Application.Admin.Queries.GetUsersQuery import GetUsersQuery, GetUsersQueryHandler
+from src.Core.Application.Admin.Commands.ChangeUserRoleCommand import (
+    ChangeUserRoleCommand,
+    ChangeUserRoleCommandHandler,
+)
+from src.Core.Application.Admin.Queries.GetUsersQuery import (
+    GetUsersQuery,
+    GetUsersQueryHandler,
+)
+from src.Infrastructure.History.models import RouteHistory
+
 
 class ChangeUserRoleView(APIView):
     permission_classes = [IsAdminUser]
 
     def post(self, request):
         command = ChangeUserRoleCommand(
-            user_id=request.data.get('user_id'),
-            new_role=request.data.get('new_role')
+            user_id=request.data.get("user_id"), new_role=request.data.get("new_role")
         )
-        
+
         handler = ChangeUserRoleCommandHandler()
         result = handler.handle(command)
-        
+
         if result.is_success:
-            return Response({"message": "Role updated successfully"}, status=status.HTTP_200_OK)
-            
-        return Response({"errors": [vars(e) for e in result.errors]}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"message": "Role updated successfully"}, status=status.HTTP_200_OK
+            )
+
+        return Response(
+            {"errors": [vars(e) for e in result.errors]},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
 
 class UserListView(APIView):
     permission_classes = [IsAdminUser]
@@ -29,8 +45,139 @@ class UserListView(APIView):
         query = GetUsersQuery()
         handler = GetUsersQueryHandler()
         result = handler.handle(query)
-        
+
         if result.is_success:
             return Response([vars(u) for u in result.data], status=status.HTTP_200_OK)
-            
-        return Response({"errors": [vars(e) for e in result.errors]}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(
+            {"errors": [vars(e) for e in result.errors]},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class RouteAnalyticsBaseView(APIView):
+    permission_classes = [IsAdminUser]
+
+    @staticmethod
+    def _apply_filters(queryset, request):
+        source = request.query_params.get("source")
+        status_value = request.query_params.get("status")
+        from_date = request.query_params.get("from_date")
+        to_date = request.query_params.get("to_date")
+
+        if source in {RouteHistory.SOURCE_TEXT, RouteHistory.SOURCE_MAP}:
+            queryset = queryset.filter(source_type=source)
+
+        if status_value in {RouteHistory.STATUS_SUCCESS, RouteHistory.STATUS_FAILED}:
+            queryset = queryset.filter(status=status_value)
+
+        if from_date:
+            parsed_from = parse_date(from_date)
+            if parsed_from:
+                queryset = queryset.filter(created_at__date__gte=parsed_from)
+
+        if to_date:
+            parsed_to = parse_date(to_date)
+            if parsed_to:
+                queryset = queryset.filter(created_at__date__lte=parsed_to)
+
+        return queryset
+
+
+class RouteAnalyticsOverviewView(RouteAnalyticsBaseView):
+    def get(self, request):
+        queryset = self._apply_filters(RouteHistory.objects.all(), request)
+        total_requests = queryset.count()
+        success_count = queryset.filter(status=RouteHistory.STATUS_SUCCESS).count()
+        failed_count = total_requests - success_count
+
+        source_counts = queryset.values("source_type").annotate(count=Count("id"))
+        source_breakdown = {
+            item["source_type"]: item["count"] for item in source_counts
+        }
+
+        latency = queryset.aggregate(
+            avg_ai_latency_ms=Avg("ai_latency_ms"),
+            avg_routing_latency_ms=Avg("routing_latency_ms"),
+            avg_total_latency_ms=Avg("total_latency_ms"),
+            avg_duration_seconds=Avg("total_duration_seconds"),
+            avg_distance_meters=Avg("total_distance_meters"),
+        )
+
+        daily_usage = list(
+            queryset.annotate(day=TruncDate("created_at"))
+            .values("day")
+            .annotate(total=Count("id"))
+            .order_by("day")
+        )
+
+        success_rate = (
+            (success_count / total_requests * 100.0) if total_requests else 0.0
+        )
+
+        return Response(
+            {
+                "totals": {
+                    "requests": total_requests,
+                    "success": success_count,
+                    "failed": failed_count,
+                    "success_rate_percent": round(success_rate, 2),
+                },
+                "source_breakdown": {
+                    RouteHistory.SOURCE_TEXT: source_breakdown.get(
+                        RouteHistory.SOURCE_TEXT, 0
+                    ),
+                    RouteHistory.SOURCE_MAP: source_breakdown.get(
+                        RouteHistory.SOURCE_MAP, 0
+                    ),
+                },
+                "averages": {
+                    "ai_latency_ms": latency["avg_ai_latency_ms"],
+                    "routing_latency_ms": latency["avg_routing_latency_ms"],
+                    "total_latency_ms": latency["avg_total_latency_ms"],
+                    "duration_seconds": latency["avg_duration_seconds"],
+                    "distance_meters": latency["avg_distance_meters"],
+                },
+                "daily_usage": daily_usage,
+                "filters": {
+                    "source": request.query_params.get("source"),
+                    "status": request.query_params.get("status"),
+                    "from_date": request.query_params.get("from_date"),
+                    "to_date": request.query_params.get("to_date"),
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class RouteAnalyticsTopRoutesView(RouteAnalyticsBaseView):
+    def get(self, request):
+        queryset = self._apply_filters(
+            RouteHistory.objects.filter(status=RouteHistory.STATUS_SUCCESS),
+            request,
+        )
+
+        top_pairs = list(
+            queryset.exclude(origin_name__isnull=True)
+            .exclude(destination_name__isnull=True)
+            .values("origin_name", "destination_name")
+            .annotate(
+                requests=Count("id"),
+                avg_duration_seconds=Avg("total_duration_seconds"),
+                avg_distance_meters=Avg("total_distance_meters"),
+            )
+            .order_by("-requests")[:10]
+        )
+
+        return Response(
+            {
+                "top_routes": top_pairs,
+                "filters": {
+                    "source": request.query_params.get("source"),
+                    "status": request.query_params.get("status"),
+                    "from_date": request.query_params.get("from_date"),
+                    "to_date": request.query_params.get("to_date"),
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
