@@ -1,10 +1,15 @@
 from django.conf import settings
+import grpc
+from uuid import uuid4
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
-from src.Infrastructure.GrpcClients.ai_client import AiGrpcClient
-from src.Infrastructure.GrpcClients.routing_client import RoutingGrpcClient
+from src.Infrastructure.GrpcClients.ai_client import AiGrpcClient, AiGrpcClientError
+from src.Infrastructure.GrpcClients.routing_client import (
+    RoutingGrpcClient,
+    RoutingGrpcClientError,
+)
 
 
 class RouteOrchestratorView(APIView):
@@ -50,17 +55,77 @@ class RouteOrchestratorView(APIView):
 
         return s_lat, s_lon, d_lat, d_lon
 
+    @staticmethod
+    def _error_response(request_id, http_status, error_code, message):
+        return Response(
+            {
+                "request_id": request_id,
+                "error": {
+                    "code": error_code,
+                    "message": message,
+                },
+            },
+            status=http_status,
+        )
+
+    @staticmethod
+    def _map_ai_error(error):
+        if error.code == grpc.StatusCode.INVALID_ARGUMENT:
+            return status.HTTP_400_BAD_REQUEST, "AI_INVALID_INPUT"
+        if error.code == grpc.StatusCode.NOT_FOUND:
+            return status.HTTP_422_UNPROCESSABLE_ENTITY, "AI_LOCATION_NOT_FOUND"
+        if error.code == grpc.StatusCode.DEADLINE_EXCEEDED:
+            return status.HTTP_504_GATEWAY_TIMEOUT, "AI_TIMEOUT"
+        if error.code == grpc.StatusCode.UNAVAILABLE:
+            return status.HTTP_503_SERVICE_UNAVAILABLE, "AI_UNAVAILABLE"
+        return status.HTTP_502_BAD_GATEWAY, "AI_UPSTREAM_ERROR"
+
+    @staticmethod
+    def _map_routing_error(error):
+        if error.code == grpc.StatusCode.INVALID_ARGUMENT:
+            return status.HTTP_400_BAD_REQUEST, "ROUTING_INVALID_INPUT"
+        if error.code == grpc.StatusCode.NOT_FOUND:
+            return status.HTTP_404_NOT_FOUND, "ROUTING_NO_PATH"
+        if error.code == grpc.StatusCode.DEADLINE_EXCEEDED:
+            return status.HTTP_504_GATEWAY_TIMEOUT, "ROUTING_TIMEOUT"
+        if error.code == grpc.StatusCode.UNAVAILABLE:
+            return status.HTTP_503_SERVICE_UNAVAILABLE, "ROUTING_UNAVAILABLE"
+        return status.HTTP_502_BAD_GATEWAY, "ROUTING_UPSTREAM_ERROR"
+
+    @staticmethod
+    def _success_response(request_id, source, route_result, from_data, to_data, intent):
+        return Response(
+            {
+                "request_id": request_id,
+                "source": source,
+                "from": from_data,
+                "to": to_data,
+                "route": route_result,
+                "meta": {
+                    "intent": intent,
+                    "step_count": len(route_result.get("steps", [])),
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
     def post(self, request):
+        request_id = str(uuid4())
+
         if self.client_boot_error:
-            return Response(
-                {"error": self.client_boot_error},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            return self._error_response(
+                request_id,
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "API_CLIENT_BOOT_ERROR",
+                self.client_boot_error,
             )
 
         if self.ai_client is None or self.routing_client is None:
-            return Response(
-                {"error": "gRPC clients are not available."},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            return self._error_response(
+                request_id,
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "API_CLIENT_UNAVAILABLE",
+                "gRPC clients are not available.",
             )
 
         data = request.data
@@ -71,76 +136,106 @@ class RouteOrchestratorView(APIView):
         has_coordinates = "origin" in data and "destination" in data
 
         if has_text and has_coordinates:
-            return Response(
-                {"error": "Provide either text or origin/destination, not both."},
-                status=status.HTTP_400_BAD_REQUEST,
+            return self._error_response(
+                request_id,
+                status.HTTP_400_BAD_REQUEST,
+                "INVALID_REQUEST_MODE",
+                "Provide either text or origin/destination, not both.",
             )
 
         if has_coordinates:
             parsed = self._parse_coordinates(data)
             if parsed is None:
-                return Response(
-                    {"error": "Invalid coordinate format."},
-                    status=status.HTTP_400_BAD_REQUEST,
+                return self._error_response(
+                    request_id,
+                    status.HTTP_400_BAD_REQUEST,
+                    "INVALID_COORDINATES",
+                    "Invalid coordinate format.",
                 )
 
             s_lat, s_lon, d_lat, d_lon = parsed
-            route_result = self.routing_client.get_route(s_lat, s_lon, d_lat, d_lon)
-
-            if route_result:
-                return Response(
-                    {"source": "map", "route": route_result},
-                    status=status.HTTP_200_OK,
+            try:
+                route_result = self.routing_client.get_route(
+                    s_lat,
+                    s_lon,
+                    d_lat,
+                    d_lon,
+                )
+            except RoutingGrpcClientError as error:
+                http_status, error_code = self._map_routing_error(error)
+                return self._error_response(
+                    request_id,
+                    http_status,
+                    error_code,
+                    error.details,
                 )
 
-            return Response(
-                {"error": "Routing Engine failed to find a path."},
-                status=status.HTTP_404_NOT_FOUND,
+            return self._success_response(
+                request_id=request_id,
+                source="map",
+                route_result=route_result,
+                from_data={"name": None, "lat": s_lat, "lon": s_lon},
+                to_data={"name": None, "lat": d_lat, "lon": d_lon},
+                intent="direct_coordinates",
             )
 
         if has_text:
             text_query = data["text"].strip()
-            ai_result = self.ai_client.extract_route(text_query)
+            try:
+                ai_result = self.ai_client.extract_route(text_query)
+            except AiGrpcClientError as error:
+                http_status, error_code = self._map_ai_error(error)
+                return self._error_response(
+                    request_id,
+                    http_status,
+                    error_code,
+                    error.details,
+                )
 
             if not ai_result:
-                return Response(
-                    {"error": "AI Service could not understand the location."},
-                    status=status.HTTP_400_BAD_REQUEST,
+                return self._error_response(
+                    request_id,
+                    status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    "AI_EMPTY_RESULT",
+                    "AI service returned no coordinates.",
                 )
 
-            route_result = self.routing_client.get_route(
-                ai_result["from_lat"],
-                ai_result["from_lon"],
-                ai_result["to_lat"],
-                ai_result["to_lon"],
-            )
-
-            if route_result:
-                return Response(
-                    {
-                        "source": "text",
-                        "intent": ai_result.get("intent", "unknown"),
-                        "from": {
-                            "name": ai_result.get("from_location"),
-                            "lat": ai_result["from_lat"],
-                            "lon": ai_result["from_lon"],
-                        },
-                        "to": {
-                            "name": ai_result.get("to_location"),
-                            "lat": ai_result["to_lat"],
-                            "lon": ai_result["to_lon"],
-                        },
-                        "route": route_result,
-                    },
-                    status=status.HTTP_200_OK,
+            try:
+                route_result = self.routing_client.get_route(
+                    ai_result["from_lat"],
+                    ai_result["from_lon"],
+                    ai_result["to_lat"],
+                    ai_result["to_lon"],
+                )
+            except RoutingGrpcClientError as error:
+                http_status, error_code = self._map_routing_error(error)
+                return self._error_response(
+                    request_id,
+                    http_status,
+                    error_code,
+                    error.details,
                 )
 
-            return Response(
-                {"error": "Routing Engine failed to find a path."},
-                status=status.HTTP_404_NOT_FOUND,
+            return self._success_response(
+                request_id=request_id,
+                source="text",
+                route_result=route_result,
+                from_data={
+                    "name": ai_result.get("from_location"),
+                    "lat": ai_result["from_lat"],
+                    "lon": ai_result["from_lon"],
+                },
+                to_data={
+                    "name": ai_result.get("to_location"),
+                    "lat": ai_result["to_lat"],
+                    "lon": ai_result["to_lon"],
+                },
+                intent=ai_result.get("intent", "unknown"),
             )
 
-        return Response(
-            {"error": "Provide either 'text' or both 'origin' and 'destination'."},
-            status=status.HTTP_400_BAD_REQUEST,
+        return self._error_response(
+            request_id,
+            status.HTTP_400_BAD_REQUEST,
+            "INVALID_REQUEST_BODY",
+            "Provide either 'text' or both 'origin' and 'destination'.",
         )

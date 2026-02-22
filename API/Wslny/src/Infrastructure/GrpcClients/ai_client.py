@@ -15,6 +15,13 @@ except ImportError:
     interpreter_pb2_grpc = None
 
 
+class AiGrpcClientError(Exception):
+    def __init__(self, code: Any, details: str):
+        super().__init__(details)
+        self.code = code
+        self.details = details
+
+
 class AiGrpcClient:
     def __init__(self, host="ai-service", port=50052, timeout_seconds=5.0):
         self.channel = grpc.insecure_channel(f"{host}:{port}")
@@ -46,5 +53,11 @@ class AiGrpcClient:
                     "intent": response.intent,
                 }
             return None
-        except grpc.RpcError:
-            return None
+        except grpc.RpcError as error:
+            code = error.code() if hasattr(error, "code") else grpc.StatusCode.UNKNOWN
+            details = (
+                error.details()
+                if hasattr(error, "details")
+                else "AI service call failed"
+            )
+            raise AiGrpcClientError(code=code, details=details) from error

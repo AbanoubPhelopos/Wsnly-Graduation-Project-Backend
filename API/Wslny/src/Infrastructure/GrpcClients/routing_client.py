@@ -15,6 +15,13 @@ except ImportError:
     routing_pb2_grpc = None
 
 
+class RoutingGrpcClientError(Exception):
+    def __init__(self, code: Any, details: str):
+        super().__init__(details)
+        self.code = code
+        self.details = details
+
+
 class RoutingGrpcClient:
     def __init__(self, host="routing-engine", port=50051, timeout_seconds=10.0):
         self.channel = grpc.insecure_channel(f"{host}:{port}")
@@ -68,5 +75,11 @@ class RoutingGrpcClient:
 
             return result
 
-        except grpc.RpcError:
-            return None
+        except grpc.RpcError as error:
+            code = error.code() if hasattr(error, "code") else grpc.StatusCode.UNKNOWN
+            details = (
+                error.details()
+                if hasattr(error, "details")
+                else "Routing service call failed"
+            )
+            raise RoutingGrpcClientError(code=code, details=details) from error
