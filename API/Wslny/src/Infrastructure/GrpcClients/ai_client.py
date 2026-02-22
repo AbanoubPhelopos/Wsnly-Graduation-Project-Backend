@@ -1,5 +1,11 @@
 import grpc
+import sys
+from pathlib import Path
 from typing import Any, Dict, Optional
+
+STUBS_DIR = Path(__file__).resolve().parent / "stubs"
+if str(STUBS_DIR) not in sys.path:
+    sys.path.append(str(STUBS_DIR))
 
 try:
     import interpreter_pb2  # type: ignore

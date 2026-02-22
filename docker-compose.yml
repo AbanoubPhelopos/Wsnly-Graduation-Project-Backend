@@ -1,23 +1,78 @@
-version: '3.8'
-
 services:
+  db:
+    image: postgres:15
+    container_name: wslny-db
+    environment:
+      - POSTGRES_DB=wslny
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d wslny"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   routing-engine:
     build:
       context: ./RoutingEngine
       dockerfile: Dockerfile
+    container_name: routing-engine
     ports:
       - "50051:50051"
-    container_name: routing-engine
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/50051'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   ai-service:
     build:
       context: .
       dockerfile: Ai-Service/Dockerfile
+    container_name: ai-service
     ports:
       - "50052:50052"
     environment:
       - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}
-      - ROUTING_SERVICE_ADDRESS=routing-engine:50051
     depends_on:
-      - routing-engine
-    container_name: ai-service
+      routing-engine:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import socket; s=socket.create_connection(('127.0.0.1', 50052), 2); s.close()\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build:
+      context: ./API/Wslny
+      dockerfile: Dockerfile
+    container_name: wslny-api
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_NAME=wslny
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_HOST=db
+      - AI_GRPC_HOST=ai-service
+      - AI_GRPC_PORT=50052
+      - ROUTING_GRPC_HOST=routing-engine
+      - ROUTING_GRPC_PORT=50051
+    depends_on:
+      db:
+        condition: service_healthy
+      ai-service:
+        condition: service_healthy
+      routing-engine:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import socket; s=socket.create_connection(('127.0.0.1', 8000), 2); s.close()\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:

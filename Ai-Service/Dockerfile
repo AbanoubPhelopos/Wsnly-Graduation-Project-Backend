@@ -18,15 +18,9 @@ COPY Ai-Service/Server.py .
 COPY Ai-Service/geocoder.py .
 
 # Copy Proto definitions
-# We copy them into a structure structure that works for generation
 COPY Ai-Service/protos/ ./protos/
-COPY RoutingEngine/proto/routing.proto ./routing_proto/
 
 # Generate gRPC Code
-# 1. Routing Engine Protos -> ./protos/
-RUN python -m grpc_tools.protoc -I./routing_proto --python_out=./protos --grpc_python_out=./protos ./routing_proto/routing.proto
-
-# 2. Interpreter Protos -> ./protos/
 RUN python -m grpc_tools.protoc -I./protos --python_out=./protos --grpc_python_out=./protos ./protos/interpreter.proto
 
 # Set PYTHONPATH to include current directory
