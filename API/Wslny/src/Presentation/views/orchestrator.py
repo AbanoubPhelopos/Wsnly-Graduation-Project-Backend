@@ -2,15 +2,31 @@ from django.conf import settings
 import grpc
 import time
 from uuid import uuid4
+from rest_framework import serializers
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiResponse,
+    PolymorphicProxySerializer,
+    extend_schema,
+    inline_serializer,
+)
 from src.Infrastructure.History.models import RouteHistory
 from src.Infrastructure.GrpcClients.ai_client import AiGrpcClient, AiGrpcClientError
 from src.Infrastructure.GrpcClients.routing_client import (
     RoutingGrpcClient,
     RoutingGrpcClientError,
+)
+from src.Presentation.schemas import (
+    MapRouteRequestSerializer,
+    RouteBodySerializer,
+    RouteErrorResponseSerializer,
+    RouteMetaSerializer,
+    RoutePointSerializer,
+    TextRouteRequestSerializer,
 )
 
 
@@ -152,6 +168,62 @@ class RouteOrchestratorView(APIView):
             total_latency_ms=total_latency_ms,
         )
 
+    @extend_schema(
+        tags=["Routing"],
+        summary="Get route by text or map pins",
+        description="Send either natural language text or exact origin/destination coordinates.",
+        request=PolymorphicProxySerializer(
+            component_name="RouteRequest",
+            serializers=[TextRouteRequestSerializer, MapRouteRequestSerializer],
+            resource_type_field_name=None,
+        ),
+        responses={
+            200: inline_serializer(
+                name="RouteSuccessResponse",
+                fields={
+                    "request_id": serializers.UUIDField(),
+                    "source": serializers.ChoiceField(choices=["text", "map"]),
+                    "from": RoutePointSerializer(),
+                    "to": RoutePointSerializer(),
+                    "route": RouteBodySerializer(),
+                    "meta": RouteMetaSerializer(),
+                },
+            ),
+            400: OpenApiResponse(response=RouteErrorResponseSerializer),
+            401: OpenApiResponse(response=RouteErrorResponseSerializer),
+            404: OpenApiResponse(response=RouteErrorResponseSerializer),
+            422: OpenApiResponse(response=RouteErrorResponseSerializer),
+            503: OpenApiResponse(response=RouteErrorResponseSerializer),
+            504: OpenApiResponse(response=RouteErrorResponseSerializer),
+        },
+        examples=[
+            OpenApiExample(
+                "Text Request",
+                value={"text": "عايز اروح العباسيه من مسكن"},
+                request_only=True,
+            ),
+            OpenApiExample(
+                "Map Request",
+                value={
+                    "origin": {"lat": 30.0539, "lon": 31.2383},
+                    "destination": {"lat": 30.0735, "lon": 31.2823},
+                },
+                request_only=True,
+            ),
+            OpenApiExample(
+                "Error Response",
+                value={
+                    "request_id": "5bb91977-11bf-476f-9fdb-7af8a6589b46",
+                    "error": {
+                        "code": "AI_LOCATION_NOT_FOUND",
+                        "message": "could not geocode one or more locations",
+                    },
+                },
+                response_only=True,
+                status_codes=["422"],
+            ),
+        ],
+    )
     def post(self, request):
         request_id = str(uuid4())
         request_start = time.perf_counter()

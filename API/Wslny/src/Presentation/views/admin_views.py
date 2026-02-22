@@ -1,9 +1,16 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework import serializers
 from django.db.models import Avg, Count
 from django.db.models.functions import TruncDate
 from django.utils.dateparse import parse_date
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiTypes,
+    extend_schema,
+    inline_serializer,
+)
 from src.Presentation.permissions import IsAdminUser
 from src.Core.Application.Admin.Commands.ChangeUserRoleCommand import (
     ChangeUserRoleCommand,
@@ -85,6 +92,44 @@ class RouteAnalyticsBaseView(APIView):
 
 
 class RouteAnalyticsOverviewView(RouteAnalyticsBaseView):
+    @extend_schema(
+        tags=["Admin Analytics"],
+        summary="Route analytics overview",
+        parameters=[
+            OpenApiParameter(
+                name="source",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                enum=["text", "map"],
+            ),
+            OpenApiParameter(
+                name="status",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                enum=["success", "failed"],
+            ),
+            OpenApiParameter(
+                name="from_date",
+                type=OpenApiTypes.DATE,
+                location=OpenApiParameter.QUERY,
+            ),
+            OpenApiParameter(
+                name="to_date", type=OpenApiTypes.DATE, location=OpenApiParameter.QUERY
+            ),
+        ],
+        responses={
+            200: inline_serializer(
+                name="RouteAnalyticsOverviewResponse",
+                fields={
+                    "totals": serializers.DictField(),
+                    "source_breakdown": serializers.DictField(),
+                    "averages": serializers.DictField(),
+                    "daily_usage": serializers.ListField(child=serializers.DictField()),
+                    "filters": serializers.DictField(),
+                },
+            )
+        },
+    )
     def get(self, request):
         queryset = self._apply_filters(RouteHistory.objects.all(), request)
         total_requests = queryset.count()
@@ -151,6 +196,41 @@ class RouteAnalyticsOverviewView(RouteAnalyticsBaseView):
 
 
 class RouteAnalyticsTopRoutesView(RouteAnalyticsBaseView):
+    @extend_schema(
+        tags=["Admin Analytics"],
+        summary="Top requested routes",
+        parameters=[
+            OpenApiParameter(
+                name="source",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                enum=["text", "map"],
+            ),
+            OpenApiParameter(
+                name="status",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                enum=["success", "failed"],
+            ),
+            OpenApiParameter(
+                name="from_date",
+                type=OpenApiTypes.DATE,
+                location=OpenApiParameter.QUERY,
+            ),
+            OpenApiParameter(
+                name="to_date", type=OpenApiTypes.DATE, location=OpenApiParameter.QUERY
+            ),
+        ],
+        responses={
+            200: inline_serializer(
+                name="RouteAnalyticsTopRoutesResponse",
+                fields={
+                    "top_routes": serializers.ListField(child=serializers.DictField()),
+                    "filters": serializers.DictField(),
+                },
+            )
+        },
+    )
     def get(self, request):
         queryset = self._apply_filters(
             RouteHistory.objects.filter(status=RouteHistory.STATUS_SUCCESS),
