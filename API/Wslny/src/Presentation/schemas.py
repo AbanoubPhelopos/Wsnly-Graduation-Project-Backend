@@ -8,11 +8,18 @@ class CoordinateSerializer(serializers.Serializer):
 
 class TextRouteRequestSerializer(serializers.Serializer):
     text = serializers.CharField()
+    preference = serializers.ChoiceField(
+        choices=["optimal", "fastest", "cheapest"], required=False
+    )
+    current_location = CoordinateSerializer(required=False, allow_null=True)
 
 
 class MapRouteRequestSerializer(serializers.Serializer):
     origin = CoordinateSerializer()
     destination = CoordinateSerializer()
+    preference = serializers.ChoiceField(
+        choices=["optimal", "fastest", "cheapest"], required=False
+    )
 
 
 class RoutePointSerializer(serializers.Serializer):
@@ -80,16 +87,20 @@ class RouteOptionSerializer(serializers.Serializer):
     totalSegments = serializers.IntegerField()
     totalDistanceMeters = serializers.FloatField()
     segments = RouteOptionSegmentSerializer(many=True)
+    estimatedFare = serializers.FloatField(required=False, allow_null=True)
+    walkDistanceMeters = serializers.FloatField(required=False, allow_null=True)
 
 
 class RouteMultiSuccessResponseSerializer(serializers.Serializer):
     request_id = serializers.UUIDField()
     source = serializers.ChoiceField(choices=["text", "map"])
     intent = serializers.CharField()
+    preference = serializers.ChoiceField(choices=["optimal", "fastest", "cheapest"])
     from_name = serializers.CharField(allow_null=True, required=False)
     to_name = serializers.CharField(allow_null=True, required=False)
     query = RouteQuerySerializer()
     routes = RouteOptionSerializer(many=True)
+    selected_route = RouteOptionSerializer(required=False, allow_null=True)
 
 
 class ErrorBodySerializer(serializers.Serializer):
@@ -154,3 +165,25 @@ class UserSummarySerializer(serializers.Serializer):
     last_name = serializers.CharField()
     mobile_number = serializers.CharField(required=False)
     role = serializers.CharField(required=False)
+
+
+class RouteSelectionRequestSerializer(serializers.Serializer):
+    request_id = serializers.CharField()
+    selected_type = serializers.CharField()
+
+
+class RouteHistoryItemSerializer(serializers.Serializer):
+    request_id = serializers.CharField(allow_null=True)
+    source_type = serializers.CharField()
+    input_text = serializers.CharField(allow_null=True)
+    preference = serializers.CharField()
+    selected_route_type = serializers.CharField(allow_null=True)
+    origin_name = serializers.CharField(allow_null=True)
+    destination_name = serializers.CharField(allow_null=True)
+    status = serializers.CharField()
+    error_code = serializers.CharField(allow_null=True)
+    total_distance_meters = serializers.FloatField(allow_null=True)
+    total_duration_seconds = serializers.FloatField(allow_null=True)
+    estimated_fare = serializers.FloatField(allow_null=True)
+    walk_distance_meters = serializers.FloatField(allow_null=True)
+    created_at = serializers.DateTimeField()

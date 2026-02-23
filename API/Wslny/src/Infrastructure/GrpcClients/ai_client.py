@@ -40,24 +40,27 @@ class AiGrpcClient:
         try:
             response = self.stub.ExtractRoute(request, timeout=self.timeout_seconds)
 
-            if response.HasField("from_coordinates") and response.HasField(
-                "to_coordinates"
-            ):
-                return {
-                    "from_lat": response.from_coordinates.latitude,
-                    "from_lon": response.from_coordinates.longitude,
-                    "to_lat": response.to_coordinates.latitude,
-                    "to_lon": response.to_coordinates.longitude,
-                    "from_location": response.from_location,
-                    "to_location": response.to_location,
-                    "intent": response.intent,
-                }
-            return None
+            payload: Dict[str, Any] = {
+                "from_location": response.from_location,
+                "to_location": response.to_location,
+                "intent": response.intent,
+            }
+
+            if response.HasField("from_coordinates"):
+                payload["from_lat"] = response.from_coordinates.latitude
+                payload["from_lon"] = response.from_coordinates.longitude
+
+            if response.HasField("to_coordinates"):
+                payload["to_lat"] = response.to_coordinates.latitude
+                payload["to_lon"] = response.to_coordinates.longitude
+
+            if "to_lat" not in payload or "to_lon" not in payload:
+                return None
+
+            return payload
         except grpc.RpcError as error:
             code = error.code() if hasattr(error, "code") else grpc.StatusCode.UNKNOWN
-            details = (
-                error.details()
-                if hasattr(error, "details")
-                else "AI service call failed"
-            )
+            details = "AI service call failed"
+            if hasattr(error, "details") and error.details():
+                details = str(error.details())
             raise AiGrpcClientError(code=code, details=details) from error

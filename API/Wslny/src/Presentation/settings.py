@@ -142,6 +142,18 @@ ROUTING_GRPC_HOST = os.getenv("ROUTING_GRPC_HOST", "routing-engine")
 ROUTING_GRPC_PORT = int(os.getenv("ROUTING_GRPC_PORT", "50051"))
 ROUTING_GRPC_TIMEOUT_SECONDS = float(os.getenv("ROUTING_GRPC_TIMEOUT_SECONDS", "10.0"))
 
+ROUTE_BUS_FIXED_FARE = float(os.getenv("FARE_BUS_FIXED", "7"))
+ROUTE_METRO_FARE_TIERS = [
+    (9, float(os.getenv("FARE_METRO_UP_TO_9", "8"))),
+    (16, float(os.getenv("FARE_METRO_UP_TO_16", "10"))),
+    (23, float(os.getenv("FARE_METRO_UP_TO_23", "15"))),
+    (10**9, float(os.getenv("FARE_METRO_ABOVE_23", "20"))),
+]
+ROUTE_TRANSFER_PENALTY = float(os.getenv("FARE_TRANSFER_PENALTY", "2"))
+ROUTE_LONG_WALK_THRESHOLD_METERS = float(
+    os.getenv("ROUTE_LONG_WALK_THRESHOLD_METERS", "1500")
+)
+
 SPECTACULAR_SETTINGS = {
     "TITLE": "Wslny API",
     "DESCRIPTION": "API documentation for Wslny orchestration and admin endpoints.",

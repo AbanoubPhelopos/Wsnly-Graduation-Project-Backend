@@ -17,6 +17,15 @@ class RouteHistory(models.Model):
         (STATUS_FAILED, "Failed"),
     )
 
+    PREFERENCE_OPTIMAL = "optimal"
+    PREFERENCE_FASTEST = "fastest"
+    PREFERENCE_CHEAPEST = "cheapest"
+    PREFERENCE_CHOICES = (
+        (PREFERENCE_OPTIMAL, "Optimal"),
+        (PREFERENCE_FASTEST, "Fastest"),
+        (PREFERENCE_CHEAPEST, "Cheapest"),
+    )
+
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -25,7 +34,14 @@ class RouteHistory(models.Model):
         related_name="route_history",
     )
     source_type = models.CharField(max_length=10, choices=SOURCE_CHOICES)
+    request_id = models.CharField(max_length=36, db_index=True, blank=True, null=True)
     input_text = models.TextField(blank=True, null=True)
+    preference = models.CharField(
+        max_length=20,
+        choices=PREFERENCE_CHOICES,
+        default=PREFERENCE_OPTIMAL,
+    )
+    selected_route_type = models.CharField(max_length=32, blank=True, null=True)
 
     origin_name = models.CharField(max_length=255, blank=True, null=True)
     destination_name = models.CharField(max_length=255, blank=True, null=True)
@@ -41,6 +57,10 @@ class RouteHistory(models.Model):
     total_distance_meters = models.FloatField(blank=True, null=True)
     total_duration_seconds = models.FloatField(blank=True, null=True)
     step_count = models.IntegerField(blank=True, null=True)
+    estimated_fare = models.FloatField(blank=True, null=True)
+    walk_distance_meters = models.FloatField(blank=True, null=True)
+    has_result = models.BooleanField(default=False)
+    unresolved_reason = models.CharField(max_length=64, blank=True, null=True)
 
     ai_latency_ms = models.FloatField(blank=True, null=True)
     routing_latency_ms = models.FloatField(blank=True, null=True)
@@ -51,6 +71,12 @@ class RouteHistory(models.Model):
     class Meta:
         ordering = ["-created_at"]
         indexes = [
-            models.Index(fields=["source_type", "created_at"]),
-            models.Index(fields=["status", "created_at"]),
+            models.Index(
+                fields=["source_type", "created_at"],
+                name="history_rou_source__cc7f59_idx",
+            ),
+            models.Index(
+                fields=["status", "created_at"],
+                name="history_rou_status_93f076_idx",
+            ),
         ]

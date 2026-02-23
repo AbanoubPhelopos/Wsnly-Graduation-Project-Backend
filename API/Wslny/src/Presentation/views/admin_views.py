@@ -2,6 +2,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework import serializers
+from django.conf import settings
 from django.db.models import Avg, Count
 from django.db.models.functions import TruncDate
 from django.utils.dateparse import parse_date
@@ -278,6 +279,155 @@ class RouteAnalyticsTopRoutesView(RouteAnalyticsBaseView):
         return Response(
             {
                 "top_routes": top_pairs,
+                "filters": {
+                    "source": request.query_params.get("source"),
+                    "status": request.query_params.get("status"),
+                    "from_date": request.query_params.get("from_date"),
+                    "to_date": request.query_params.get("to_date"),
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class RouteSelectionStatsView(RouteAnalyticsBaseView):
+    @extend_schema(
+        tags=["Admin Analytics"],
+        summary="Selected route type statistics",
+        parameters=[
+            OpenApiParameter(
+                name="source",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                enum=["text", "map"],
+            ),
+            OpenApiParameter(
+                name="status",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                enum=["success", "failed"],
+            ),
+            OpenApiParameter(
+                name="from_date",
+                type=OpenApiTypes.DATE,
+                location=OpenApiParameter.QUERY,
+            ),
+            OpenApiParameter(
+                name="to_date",
+                type=OpenApiTypes.DATE,
+                location=OpenApiParameter.QUERY,
+            ),
+        ],
+        responses={
+            200: inline_serializer(
+                name="RouteSelectionStatsResponse",
+                fields={
+                    "selections": serializers.ListField(child=serializers.DictField()),
+                    "filters": serializers.DictField(),
+                },
+            )
+        },
+    )
+    def get(self, request):
+        queryset = self._apply_filters(
+            RouteHistory.objects.filter(has_result=True), request
+        )
+
+        selections = (
+            queryset.exclude(selected_route_type__isnull=True)
+            .values("selected_route_type")
+            .annotate(count=Count("id"))
+            .order_by("-count")
+        )
+
+        return Response(
+            {
+                "selections": list(selections),
+                "filters": {
+                    "source": request.query_params.get("source"),
+                    "status": request.query_params.get("status"),
+                    "from_date": request.query_params.get("from_date"),
+                    "to_date": request.query_params.get("to_date"),
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class RouteUnresolvedStatsView(RouteAnalyticsBaseView):
+    @extend_schema(
+        tags=["Admin Analytics"],
+        summary="Unresolved and long-walk route statistics",
+        parameters=[
+            OpenApiParameter(
+                name="source",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                enum=["text", "map"],
+            ),
+            OpenApiParameter(
+                name="status",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                enum=["success", "failed"],
+            ),
+            OpenApiParameter(
+                name="from_date",
+                type=OpenApiTypes.DATE,
+                location=OpenApiParameter.QUERY,
+            ),
+            OpenApiParameter(
+                name="to_date",
+                type=OpenApiTypes.DATE,
+                location=OpenApiParameter.QUERY,
+            ),
+        ],
+        responses={
+            200: inline_serializer(
+                name="RouteUnresolvedStatsResponse",
+                fields={
+                    "unresolved_reasons": serializers.ListField(
+                        child=serializers.DictField()
+                    ),
+                    "long_walk_count": serializers.IntegerField(),
+                    "top_unresolved_queries": serializers.ListField(
+                        child=serializers.DictField()
+                    ),
+                    "filters": serializers.DictField(),
+                },
+            )
+        },
+    )
+    def get(self, request):
+        queryset = self._apply_filters(RouteHistory.objects.all(), request)
+
+        unresolved = list(
+            queryset.filter(has_result=False)
+            .exclude(unresolved_reason__isnull=True)
+            .exclude(unresolved_reason="")
+            .values("unresolved_reason")
+            .annotate(count=Count("id"))
+            .order_by("-count")
+        )
+
+        long_walk = queryset.filter(
+            walk_distance_meters__isnull=False,
+            walk_distance_meters__gte=settings.ROUTE_LONG_WALK_THRESHOLD_METERS,
+        ).count()
+
+        unresolved_queries = list(
+            queryset.filter(has_result=False)
+            .exclude(input_text__isnull=True)
+            .values("input_text", "error_code")
+            .annotate(count=Count("id"))
+            .order_by("-count")[:20]
+        )
+
+        return Response(
+            {
+                "unresolved_reasons": unresolved,
+                "long_walk_count": long_walk,
+                "top_unresolved_queries": unresolved_queries,
                 "filters": {
                     "source": request.query_params.get("source"),
                     "status": request.query_params.get("status"),

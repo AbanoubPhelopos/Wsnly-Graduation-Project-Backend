@@ -110,6 +110,30 @@ def _extract_with_rules(text: str):
         if origin and destination:
             return _apply_alias(origin), _apply_alias(destination)
 
+    # Conversational pattern: destination first + explicit current location.
+    convo = re.search(
+        r"(?:اروح|اذهب|روح)\s+(?P<to>.+?)\s+(?:و\s*انا|وانا)\s+في\s+(?P<from>.+)$",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    if convo:
+        origin = _clean_location_candidate(convo.group("from"))
+        destination = _clean_location_candidate(convo.group("to"))
+        if origin and destination:
+            return _apply_alias(origin), _apply_alias(destination)
+
+    # Destination-only request. Source can be supplied by API current_location.
+    destination_only = re.search(
+        r"(?:عايز|عايزة|عاوزه|اريد|محتاج|حابب)?\s*(?:اروح|اذهب|روح)\s+(?P<to>.+)$",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    if destination_only:
+        destination = _clean_location_candidate(destination_only.group("to"))
+        destination = re.sub(r"\s+(?:و\s*انا.*)$", "", destination, flags=re.IGNORECASE)
+        if destination:
+            return "", _apply_alias(destination)
+
     if " من " in normalized:
         before_from, after_from = normalized.rsplit(" من ", 1)
         origin = _clean_location_candidate(after_from)
@@ -169,25 +193,27 @@ class TransitInterpreterService(pb2_grpc.TransitInterpreterServicer):
 
         from_loc_name, to_loc_name = extract_locations(text)
 
-        if not from_loc_name or not to_loc_name:
+        if not to_loc_name:
             context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
-            context.set_details("could not extract origin and destination from text")
+            context.set_details("could not extract destination from text")
             return pb2.RouteResponse(intent="unknown")
 
         logger.info(f"📍 Extracted: From '{from_loc_name}' To '{to_loc_name}'")
 
         # 3. Geocode
-        from_coords = _resolve_known_coordinates(
-            from_loc_name
-        ) or geocoder.get_coordinates(from_loc_name)
+        from_coords = None
+        if from_loc_name:
+            from_coords = _resolve_known_coordinates(
+                from_loc_name
+            ) or geocoder.get_coordinates(from_loc_name)
         to_coords = _resolve_known_coordinates(to_loc_name) or geocoder.get_coordinates(
             to_loc_name
         )
 
-        if not from_coords or not to_coords:
+        if not to_coords:
             logger.warning("❌ Geocoding failed for one or more locations.")
             context.set_code(grpc.StatusCode.NOT_FOUND)
-            context.set_details("could not geocode one or more locations")
+            context.set_details("could not geocode destination location")
             return pb2.RouteResponse(
                 from_location=from_loc_name,
                 to_location=to_loc_name,
@@ -196,25 +222,19 @@ class TransitInterpreterService(pb2_grpc.TransitInterpreterServicer):
 
         logger.info(f"🌍 Coordinates: {from_coords} -> {to_coords}")
 
-        # 5. Return gRPC Response
-        # Create Location objects if coordinates exist
-        from_loc_msg = None
-        if from_coords:
-            from_loc_msg = pb2.Location(
-                latitude=from_coords[0], longitude=from_coords[1]
-            )
-
-        to_loc_msg = None
-        if to_coords:
-            to_loc_msg = pb2.Location(latitude=to_coords[0], longitude=to_coords[1])
-
-        return pb2.RouteResponse(
+        response = pb2.RouteResponse(
             from_location=from_loc_name,
             to_location=to_loc_name,
-            from_coordinates=from_loc_msg,
-            to_coordinates=to_loc_msg,
             intent="standard",
         )
+        if from_coords:
+            response.from_coordinates.CopyFrom(
+                pb2.Location(latitude=from_coords[0], longitude=from_coords[1])
+            )
+        response.to_coordinates.CopyFrom(
+            pb2.Location(latitude=to_coords[0], longitude=to_coords[1])
+        )
+        return response
 
 
 def serve():
