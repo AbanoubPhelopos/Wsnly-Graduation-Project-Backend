@@ -1,6 +1,7 @@
 from django.contrib import admin
 from django.urls import path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
+
 from src.Presentation.views.auth_views import (
     ChangePasswordView,
     GoogleLoginView,
@@ -15,6 +16,7 @@ from src.Presentation.views.admin_views import (
     UserListView,
 )
 from src.Presentation.views.orchestrator import RouteOrchestratorView
+
 
 urlpatterns = [
     path("admin/", admin.site.urls),

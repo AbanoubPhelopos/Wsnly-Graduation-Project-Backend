@@ -9,7 +9,7 @@ RoutingEngine is the high-performance C++ gRPC service that computes routes from
 - Compute candidate routes with A* based search.
 - Return structured route steps (duration, type, coordinates).
 
-RoutingEngine does not parse natural language. It only operates on coordinates.
+RoutingEngine does not parse natural language. It only operates on coordinates.l
 
 ## Communication In The Platform
 

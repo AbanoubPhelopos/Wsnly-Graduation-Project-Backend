@@ -1,6 +1,7 @@
 grpcio
 grpcio-tools
 transformers
-torch --index-url https://download.pytorch.org/whl/cpu  # Use CPU version for lighter image if no GPU
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.5.1+cpu
 safetensors
 googlemaps

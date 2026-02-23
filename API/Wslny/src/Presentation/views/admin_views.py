@@ -7,6 +7,7 @@ from django.db.models.functions import TruncDate
 from django.utils.dateparse import parse_date
 from drf_spectacular.utils import (
     OpenApiParameter,
+    OpenApiResponse,
     OpenApiTypes,
     extend_schema,
     inline_serializer,

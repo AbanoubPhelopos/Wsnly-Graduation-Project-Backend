@@ -11,6 +11,7 @@ import grpc
 from concurrent import futures
 from transformers import pipeline
 import logging
+import re
 
 # --- STEP 2: IMPORT PROTOS ---
 # Now that 'protos' is in the path, these imports will work
@@ -27,13 +28,54 @@ logger = logging.getLogger(__name__)
 NER_MODEL_PATH = "./TransitModel"
 
 print("🚀 Loading AI Model... this may take a moment.")
-nlp_pipeline = pipeline(
-    "token-classification",
-    model=NER_MODEL_PATH,
-    tokenizer=NER_MODEL_PATH,
-    aggregation_strategy="simple",
-)
-print("✅ Model Loaded!")
+nlp_pipeline = None
+try:
+    nlp_pipeline = pipeline(
+        "token-classification",
+        model=NER_MODEL_PATH,
+        tokenizer=NER_MODEL_PATH,
+        aggregation_strategy="simple",
+    )
+    print("✅ Model Loaded!")
+except Exception as error:
+    logger.warning(f"Model load failed, using rule-based fallback extractor: {error}")
+
+
+def extract_locations(text):
+    if nlp_pipeline is not None:
+        results = nlp_pipeline(text)
+        from_loc_name = ""
+        to_loc_name = ""
+        for entity in results:
+            if entity.get("entity_group") == "FROM":
+                from_loc_name = entity.get("word", "")
+            elif entity.get("entity_group") == "TO":
+                to_loc_name = entity.get("word", "")
+        return from_loc_name.strip(), to_loc_name.strip()
+
+    normalized = " ".join((text or "").strip().split())
+
+    match_en = re.search(r"to\s+(.+?)\s+from\s+(.+)$", normalized, flags=re.IGNORECASE)
+    if match_en:
+        return match_en.group(2).strip(), match_en.group(1).strip()
+
+    if " من " in normalized:
+        before_from, after_from = normalized.rsplit(" من ", 1)
+        origin = after_from.strip()
+        destination = ""
+
+        if " الى " in before_from:
+            destination = before_from.split(" الى ")[-1].strip()
+        elif " إلى " in before_from:
+            destination = before_from.split(" إلى ")[-1].strip()
+        else:
+            tokens = before_from.strip().split()
+            destination = tokens[-1].strip() if tokens else ""
+
+        return origin, destination
+
+    return "", ""
+
 
 # Initialize Services
 geocoder = GoogleMapsGeocoder()
@@ -49,17 +91,7 @@ class TransitInterpreterService(pb2_grpc.TransitInterpreterServicer):
 
         logger.info(f"📩 Received request: {text}")
 
-        # 2. Run Inference
-        results = nlp_pipeline(text)
-
-        from_loc_name = ""
-        to_loc_name = ""
-
-        for entity in results:
-            if entity["entity_group"] == "FROM":
-                from_loc_name = entity["word"]
-            elif entity["entity_group"] == "TO":
-                to_loc_name = entity["word"]
+        from_loc_name, to_loc_name = extract_locations(text)
 
         if not from_loc_name or not to_loc_name:
             context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
