@@ -71,6 +71,14 @@ class TestTransitFlow(unittest.TestCase):
         self.assertEqual(destination, "التجمع")
 
     @patch("Server.nlp_pipeline", None)
+    def test_extract_locations_conversational_with_context_and_typo(self):
+        origin, destination = Server.extract_locations(
+            "اروح ازاي عند خطيبتي في شيراتون و انا في سرايا القيه"
+        )
+        self.assertEqual(origin, "سرايا القبة")
+        self.assertEqual(destination, "شيراتون")
+
+    @patch("Server.nlp_pipeline", None)
     def test_known_coordinate_resolution(self):
         self.assertEqual(
             Server._resolve_known_coordinates("الف مسكن"), (30.1188972, 31.3400652)

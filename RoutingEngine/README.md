@@ -7,7 +7,7 @@ RoutingEngine is the high-performance C++ gRPC service that computes routes from
 - Load GTFS CSV/TXT data into an in-memory graph at startup.
 - Build transit and walking transfer edges.
 - Compute candidate routes with A* based search.
-- Return structured route steps (duration, type, coordinates).
+- Return multi-option routes with segment metrics (`optimal`, `bus_only`, `metro_only`, `microbus_only`).
 
 RoutingEngine does not parse natural language. It only operates on coordinates.
 
@@ -53,6 +53,10 @@ python RoutingEngine/tools/validate_gtfs.py --db-path RoutingEngine/Database
 - Service: `RoutingService`
 - RPC: `GetRoute(RouteRequest) -> RouteResponse`
 - Proto source: `shared/protos/routing.proto`
+- Response includes:
+  - `query` (resolved input coordinates)
+  - `routes[]` (multi-option result set)
+  - legacy single-route fields for backward compatibility
 
 ## Run
 

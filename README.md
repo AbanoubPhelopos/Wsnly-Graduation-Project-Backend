@@ -40,17 +40,22 @@ Wslny API --> PostgreSQL (users, route history, analytics)
 `POST /api/route` with:
 
 ```json
-{ "text": "عايز اروح العباسيه من مسكن" }
+{
+  "text": "عايز اروح العباسيه من مسكن",
+  "preference": "optimal"
+}
 ```
 
 Pipeline:
 
 1. Wslny validates JWT and payload.
 2. Wslny calls AI gRPC `TransitInterpreter.ExtractRoute`.
-3. AI returns names + lat/lon for origin/destination.
-4. Wslny calls RoutingEngine gRPC `RoutingService.GetRoute`.
-5. Wslny returns final JSON route response.
-6. Wslny stores route history + latency metrics.
+3. AI returns names + lat/lon for destination and, when available, origin.
+4. If origin is missing, API can use `current_location` from client payload.
+5. Wslny calls RoutingEngine gRPC `RoutingService.GetRoute`.
+6. Wslny ranks route options by `preference` (`optimal`, `fastest`, `cheapest`).
+7. Wslny returns final JSON route response with `routes[]` and `selected_route`.
+8. Wslny stores route history + latency metrics.
 
 ### 2) Map-Pin Flow
 
@@ -59,7 +64,8 @@ Pipeline:
 ```json
 {
   "origin": { "lat": 30.0539, "lon": 31.2383 },
-  "destination": { "lat": 30.0735, "lon": 31.2823 }
+  "destination": { "lat": 30.0735, "lon": 31.2823 },
+  "preference": "cheapest"
 }
 ```
 
@@ -68,16 +74,21 @@ Pipeline:
 1. Wslny validates JWT and coordinates.
 2. Wslny bypasses AI.
 3. Wslny calls RoutingEngine directly.
-4. Wslny returns final JSON route response.
-5. Wslny stores route history + latency metrics.
+4. Wslny ranks route options by `preference`.
+5. Wslny returns final JSON route response.
+6. Wslny stores route history + latency metrics.
 
 ## Main API Surfaces
 
 - Auth: `/api/auth/register`, `/api/auth/login`, `/api/auth/google-login`, `/api/auth/profile`
 - Routing: `/api/route`
+- Route history: `/api/route/history`
+- Route selection tracking: `/api/route/selection`
 - Admin analytics:
   - `/api/admin/analytics/routes/overview`
   - `/api/admin/analytics/routes/top-routes`
+  - `/api/admin/analytics/routes/selections`
+  - `/api/admin/analytics/routes/unresolved`
 - OpenAPI:
   - `/api/schema/`
   - `/api/docs/`

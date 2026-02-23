@@ -46,6 +46,11 @@ LOCATION_ALIASES = {
     "الالف مسكن": "ألف مسكن",
     "عباسيه": "العباسية",
     "العباسيه": "العباسية",
+    "سرايا القيه": "سرايا القبة",
+    "سرايا القبه": "سرايا القبة",
+    "السرايا القيه": "سرايا القبة",
+    "السرايا القبه": "سرايا القبة",
+    "شيرتون": "شيراتون",
 }
 
 KNOWN_LOCATION_COORDINATES = {
@@ -67,11 +72,19 @@ def _normalize_text(value: str) -> str:
 def _clean_location_candidate(value: str) -> str:
     candidate = _normalize_text(value)
     candidate = re.sub(
-        r"^(?:اركب\s+ايه\s+علشان|عايز\s+اركب\s+ايه\s+علشان|عايز|عايزة|عاوزه|اريد|محتاج|حابب|لو سمحت|ممكن|اروح|اذهب|روح|علشان|عشان)\s+",
+        r"^(?:اركب\s+ايه\s+علشان|عايز\s+اركب\s+ايه\s+علشان|عايز|عايزة|عاوزه|اريد|محتاج|حابب|لو سمحت|ممكن|اروح|اذهب|روح|علشان|عشان|ازاي|ازاى|اوصل|اوصل)\s+",
         "",
         candidate,
         flags=re.IGNORECASE,
     )
+    if " في " in candidate:
+        before_in, after_in = candidate.rsplit(" في ", 1)
+        if any(
+            token in before_in
+            for token in ("عند", "بيت", "شغل", "مكان", "منطقة", "ناحية", "جنب")
+        ):
+            candidate = after_in
+
     candidate = re.sub(r"^(?:اروح|اذهب|روح)\s+", "", candidate, flags=re.IGNORECASE)
     candidate = re.sub(r"\s+(?:لو سمحت|من فضلك)$", "", candidate, flags=re.IGNORECASE)
     return candidate.strip(" ,.-")
@@ -112,7 +125,7 @@ def _extract_with_rules(text: str):
 
     # Conversational pattern: destination first + explicit current location.
     convo = re.search(
-        r"(?:اروح|اذهب|روح)\s+(?P<to>.+?)\s+(?:و\s*انا|وانا)\s+في\s+(?P<from>.+)$",
+        r"(?:اروح|اذهب|روح)\s+(?:ازاي\s+|ازاى\s+)?(?P<to>.+?)\s+(?:و\s*انا|وانا)\s+في\s+(?P<from>.+)$",
         normalized,
         flags=re.IGNORECASE,
     )

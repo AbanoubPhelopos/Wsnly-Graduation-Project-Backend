@@ -5,10 +5,13 @@ Ai-Service is a Python gRPC microservice that converts natural language trip req
 ## Responsibilities
 
 - Parse free-form text (Arabic/English) to detect origin and destination.
+- Handle conversational Arabic patterns and common typo aliases for Cairo locations.
 - Geocode extracted places to latitude/longitude using Google Maps.
 - Return interpretation result to Wslny API over gRPC.
 
 Ai-Service does not calculate paths. Routing is delegated to `RoutingEngine`.
+
+The service may return destination coordinates even when origin is missing (destination-only request); API can complete source using `current_location`.
 
 ## Communication Contract
 
@@ -47,9 +50,27 @@ Output (gRPC payload conceptually):
 }
 ```
 
+Destination-only example:
+
+```json
+{
+  "from_location": "",
+  "to_location": "شيراتون",
+  "to_coordinates": { "latitude": 30.10, "longitude": 31.37 },
+  "intent": "standard"
+}
+```
+
 ## Caching
 
 Geocoding results are cached in-memory in `geocoder.py` to reduce external API calls for repeated place names.
+
+## Accuracy Strategy
+
+- ML pipeline when a valid model exists in `TransitModel`.
+- Rule-based extraction fallback for robust runtime behavior.
+- Alias normalization for frequent user typos and colloquial names.
+- Regression tests in `Ai-Service/tests/test_flow.py` for critical Arabic phrases.
 
 ## Required Environment
 
