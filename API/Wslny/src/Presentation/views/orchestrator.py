@@ -2,7 +2,6 @@ from django.conf import settings
 import grpc
 import time
 from uuid import uuid4
-from rest_framework import serializers
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -12,7 +11,6 @@ from drf_spectacular.utils import (
     OpenApiResponse,
     PolymorphicProxySerializer,
     extend_schema,
-    inline_serializer,
 )
 from src.Infrastructure.History.models import RouteHistory
 from src.Infrastructure.GrpcClients.ai_client import AiGrpcClient, AiGrpcClientError
@@ -22,10 +20,8 @@ from src.Infrastructure.GrpcClients.routing_client import (
 )
 from src.Presentation.schemas import (
     MapRouteRequestSerializer,
-    RouteBodySerializer,
     RouteErrorResponseSerializer,
-    RouteMetaSerializer,
-    RoutePointSerializer,
+    RouteMultiSuccessResponseSerializer,
     TextRouteRequestSerializer,
 )
 
@@ -112,19 +108,78 @@ class RouteOrchestratorView(APIView):
 
     @staticmethod
     def _success_response(request_id, source, route_result, from_data, to_data, intent):
-        return Response(
-            {
-                "request_id": request_id,
-                "source": source,
-                "from": from_data,
-                "to": to_data,
-                "route": route_result,
-                "meta": {
-                    "intent": intent,
-                    "step_count": len(route_result.get("steps", [])),
+        payload = {
+            "request_id": request_id,
+            "source": source,
+            "intent": intent,
+            "from_name": from_data.get("name") if from_data else None,
+            "to_name": to_data.get("name") if to_data else None,
+        }
+
+        if "query" in route_result and "routes" in route_result:
+            payload["query"] = route_result["query"]
+            payload["routes"] = route_result["routes"]
+        else:
+            payload["query"] = {
+                "origin": {
+                    "lat": from_data.get("lat") if from_data else None,
+                    "lon": from_data.get("lon") if from_data else None,
                 },
-            },
+                "destination": {
+                    "lat": to_data.get("lat") if to_data else None,
+                    "lon": to_data.get("lon") if to_data else None,
+                },
+            }
+            payload["routes"] = [
+                {
+                    "type": "optimal",
+                    "found": True,
+                    "totalDurationSeconds": int(
+                        route_result.get("total_duration_seconds", 0)
+                    ),
+                    "totalDurationFormatted": "",
+                    "totalSegments": len(route_result.get("steps", [])),
+                    "totalDistanceMeters": route_result.get(
+                        "total_distance_meters", 0.0
+                    ),
+                    "segments": [],
+                }
+            ]
+
+        return Response(
+            payload,
             status=status.HTTP_200_OK,
+        )
+
+    @staticmethod
+    def _extract_history_summary(route_result):
+        if not route_result:
+            return None, None, None
+
+        if "routes" in route_result:
+            optimal = None
+            for item in route_result.get("routes", []):
+                if item.get("type") == "optimal":
+                    optimal = item
+                    break
+
+            target = optimal or next(
+                (item for item in route_result.get("routes", []) if item.get("found")),
+                None,
+            )
+
+            if target:
+                return (
+                    target.get("totalDistanceMeters"),
+                    target.get("totalDurationSeconds"),
+                    target.get("totalSegments"),
+                )
+            return None, None, None
+
+        return (
+            route_result.get("total_distance_meters"),
+            route_result.get("total_duration_seconds"),
+            len(route_result.get("steps", [])),
         )
 
     def _record_history(
@@ -143,6 +198,10 @@ class RouteOrchestratorView(APIView):
         total_latency_ms,
     ):
         user = request.user if request.user.is_authenticated else None
+        total_distance, total_duration, total_steps = self._extract_history_summary(
+            route_result
+        )
+
         RouteHistory.objects.create(
             user=user,
             source_type=source_type,
@@ -156,13 +215,9 @@ class RouteOrchestratorView(APIView):
             status=status_value,
             error_code=error_code,
             error_message=error_message,
-            total_distance_meters=(
-                route_result.get("total_distance_meters") if route_result else None
-            ),
-            total_duration_seconds=(
-                route_result.get("total_duration_seconds") if route_result else None
-            ),
-            step_count=(len(route_result.get("steps", [])) if route_result else None),
+            total_distance_meters=total_distance,
+            total_duration_seconds=total_duration,
+            step_count=total_steps,
             ai_latency_ms=ai_latency_ms,
             routing_latency_ms=routing_latency_ms,
             total_latency_ms=total_latency_ms,
@@ -178,17 +233,7 @@ class RouteOrchestratorView(APIView):
             resource_type_field_name=None,
         ),
         responses={
-            200: inline_serializer(
-                name="RouteSuccessResponse",
-                fields={
-                    "request_id": serializers.UUIDField(),
-                    "source": serializers.ChoiceField(choices=["text", "map"]),
-                    "from": RoutePointSerializer(),
-                    "to": RoutePointSerializer(),
-                    "route": RouteBodySerializer(),
-                    "meta": RouteMetaSerializer(),
-                },
-            ),
+            200: RouteMultiSuccessResponseSerializer,
             400: OpenApiResponse(response=RouteErrorResponseSerializer),
             401: OpenApiResponse(response=RouteErrorResponseSerializer),
             404: OpenApiResponse(response=RouteErrorResponseSerializer),

@@ -48,6 +48,56 @@ class RoutingGrpcClient:
         try:
             response = self.stub.GetRoute(request, timeout=self.timeout_seconds)
 
+            if response.routes:
+                result = {
+                    "query": {
+                        "origin": {
+                            "lat": response.query.origin.latitude,
+                            "lon": response.query.origin.longitude,
+                        },
+                        "destination": {
+                            "lat": response.query.destination.latitude,
+                            "lon": response.query.destination.longitude,
+                        },
+                    },
+                    "routes": [],
+                }
+
+                for route in response.routes:
+                    route_data = {
+                        "type": route.type,
+                        "found": route.found,
+                        "totalDurationSeconds": route.total_duration_seconds,
+                        "totalDurationFormatted": route.total_duration_formatted,
+                        "totalSegments": route.total_segments,
+                        "totalDistanceMeters": route.total_distance_meters,
+                        "segments": [],
+                    }
+
+                    for segment in route.segments:
+                        route_data["segments"].append(
+                            {
+                                "startLocation": {
+                                    "lat": segment.start_location.latitude,
+                                    "lon": segment.start_location.longitude,
+                                    "name": segment.start_name,
+                                },
+                                "endLocation": {
+                                    "lat": segment.end_location.latitude,
+                                    "lon": segment.end_location.longitude,
+                                    "name": segment.end_name,
+                                },
+                                "method": segment.method,
+                                "numStops": segment.num_stops,
+                                "distanceMeters": segment.distance_meters,
+                                "durationSeconds": segment.duration_seconds,
+                            }
+                        )
+
+                    result["routes"].append(route_data)
+
+                return result
+
             result = {
                 "total_distance_meters": response.total_distance_meters,
                 "total_duration_seconds": response.total_duration_seconds,
@@ -77,9 +127,7 @@ class RoutingGrpcClient:
 
         except grpc.RpcError as error:
             code = error.code() if hasattr(error, "code") else grpc.StatusCode.UNKNOWN
-            details = (
-                error.details()
-                if hasattr(error, "details")
-                else "Routing service call failed"
-            )
+            details = "Routing service call failed"
+            if hasattr(error, "details") and error.details():
+                details = str(error.details())
             raise RoutingGrpcClientError(code=code, details=details) from error

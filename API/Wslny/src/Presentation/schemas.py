@@ -47,6 +47,51 @@ class RouteMetaSerializer(serializers.Serializer):
     step_count = serializers.IntegerField()
 
 
+class RouteQueryPointSerializer(serializers.Serializer):
+    lat = serializers.FloatField()
+    lon = serializers.FloatField()
+
+
+class RouteQuerySerializer(serializers.Serializer):
+    origin = RouteQueryPointSerializer()
+    destination = RouteQueryPointSerializer()
+
+
+class RouteOptionSegmentLocationSerializer(serializers.Serializer):
+    lat = serializers.FloatField()
+    lon = serializers.FloatField()
+    name = serializers.CharField()
+
+
+class RouteOptionSegmentSerializer(serializers.Serializer):
+    startLocation = RouteOptionSegmentLocationSerializer()
+    endLocation = RouteOptionSegmentLocationSerializer()
+    method = serializers.CharField()
+    numStops = serializers.IntegerField()
+    distanceMeters = serializers.IntegerField()
+    durationSeconds = serializers.IntegerField()
+
+
+class RouteOptionSerializer(serializers.Serializer):
+    type = serializers.CharField()
+    found = serializers.BooleanField()
+    totalDurationSeconds = serializers.IntegerField()
+    totalDurationFormatted = serializers.CharField()
+    totalSegments = serializers.IntegerField()
+    totalDistanceMeters = serializers.FloatField()
+    segments = RouteOptionSegmentSerializer(many=True)
+
+
+class RouteMultiSuccessResponseSerializer(serializers.Serializer):
+    request_id = serializers.UUIDField()
+    source = serializers.ChoiceField(choices=["text", "map"])
+    intent = serializers.CharField()
+    from_name = serializers.CharField(allow_null=True, required=False)
+    to_name = serializers.CharField(allow_null=True, required=False)
+    query = RouteQuerySerializer()
+    routes = RouteOptionSerializer(many=True)
+
+
 class ErrorBodySerializer(serializers.Serializer):
     code = serializers.CharField()
     message = serializers.CharField()
