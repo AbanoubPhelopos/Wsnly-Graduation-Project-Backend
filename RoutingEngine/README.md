@@ -9,7 +9,7 @@ RoutingEngine is the high-performance C++ gRPC service that computes routes from
 - Compute candidate routes with A* based search.
 - Return structured route steps (duration, type, coordinates).
 
-RoutingEngine does not parse natural language. It only operates on coordinates.l
+RoutingEngine does not parse natural language. It only operates on coordinates.
 
 ## Communication In The Platform
 
@@ -32,6 +32,21 @@ Both text and map-pin user requests end up here after orchestration in Wslny API
 - Runtime env var: `GTFS_PATH` (defaults internally to `GTFS`, but container sets `/app/Database`).
 - Data is loaded once at startup and held in-memory for fast query response.
 - Startup now fails fast if no nodes were loaded.
+
+## GTFS Data Quality
+
+- Validation tool: `RoutingEngine/tools/validate_gtfs.py`
+- It checks:
+  - orphan stops not referenced by `stop_times.csv`
+  - referential integrity across stops/trips/routes/stop_times
+  - exact duplicate stop records
+  - suspicious same-name stop clusters with large geographic spread
+
+Example run:
+
+```bash
+python RoutingEngine/tools/validate_gtfs.py --db-path RoutingEngine/Database
+```
 
 ## gRPC Contract
 
