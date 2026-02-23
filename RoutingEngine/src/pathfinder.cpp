@@ -29,10 +29,20 @@ RouteResult Pathfinder::FindPath(const Graph &graph, double sLat, double sLon,
 
   const auto &nodes = graph.GetNodes();
 
-  auto startNodes =
-      graph.getNodesWithinRadius(sLat, sLon, MAX_WALK_DISTANCE, modeMask);
-  auto endNodes =
-      graph.getNodesWithinRadius(dLat, dLon, MAX_WALK_DISTANCE, modeMask);
+  const std::vector<double> candidateRadii = {MAX_WALK_DISTANCE, 2500.0, 4000.0,
+                                               6000.0};
+
+  std::vector<std::pair<NodeID, double>> startNodes;
+  std::vector<std::pair<NodeID, double>> endNodes;
+
+  for (double radius : candidateRadii) {
+    startNodes = graph.getNodesWithinRadius(sLat, sLon, radius, modeMask);
+    endNodes = graph.getNodesWithinRadius(dLat, dLon, radius, modeMask);
+
+    if (!startNodes.empty() && !endNodes.empty()) {
+      break;
+    }
+  }
 
   double directDist = haversine(sLat, sLon, dLat, dLon);
   bool canDirectWalk = (directDist <= MAX_WALK_DISTANCE * 2);

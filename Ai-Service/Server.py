@@ -67,11 +67,12 @@ def _normalize_text(value: str) -> str:
 def _clean_location_candidate(value: str) -> str:
     candidate = _normalize_text(value)
     candidate = re.sub(
-        r"^(?:عايز|عايزة|عاوزه|اريد|محتاج|حابب|لو سمحت|ممكن|اروح|اذهب|روح)\s+",
+        r"^(?:اركب\s+ايه\s+علشان|عايز\s+اركب\s+ايه\s+علشان|عايز|عايزة|عاوزه|اريد|محتاج|حابب|لو سمحت|ممكن|اروح|اذهب|روح|علشان|عشان)\s+",
         "",
         candidate,
         flags=re.IGNORECASE,
     )
+    candidate = re.sub(r"^(?:اروح|اذهب|روح)\s+", "", candidate, flags=re.IGNORECASE)
     candidate = re.sub(r"\s+(?:لو سمحت|من فضلك)$", "", candidate, flags=re.IGNORECASE)
     return candidate.strip(" ,.-")
 

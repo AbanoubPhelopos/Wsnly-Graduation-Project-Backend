@@ -26,6 +26,19 @@ double segmentSpeed(const std::string &method) {
     return MICROBUS_SPEED_MPS;
   return WALK_SPEED_MPS;
 }
+
+bool isIgnorableInternalWalk(const RouteSegment &segment, double distanceMeters,
+                             bool isFirst, bool isLast) {
+  if (isFirst || isLast) {
+    return false;
+  }
+
+  if (segment.method != "walking") {
+    return false;
+  }
+
+  return distanceMeters < 10.0;
+}
 } // namespace
 
 Status RoutingServiceImpl::GetRoute(ServerContext *context,
@@ -75,8 +88,14 @@ Status RoutingServiceImpl::GetRoute(ServerContext *context,
 
     double optionTotalDistance = 0.0;
 
-    for (const auto &seg : r.segments) {
+    for (size_t i = 0; i < r.segments.size(); ++i) {
+      const auto &seg = r.segments[i];
       double segDist = haversine(seg.startLat, seg.startLon, seg.endLat, seg.endLon);
+
+      if (isIgnorableInternalWalk(seg, segDist, i == 0, i + 1 == r.segments.size())) {
+        continue;
+      }
+
       optionTotalDistance += segDist;
 
       auto *segment = option->add_segments();
@@ -96,6 +115,7 @@ Status RoutingServiceImpl::GetRoute(ServerContext *context,
       segment->set_duration_seconds(segDuration);
     }
 
+    option->set_total_segments(option->segments_size());
     option->set_total_distance_meters(optionTotalDistance);
   }
 
@@ -119,10 +139,17 @@ Status RoutingServiceImpl::GetRoute(ServerContext *context,
 
   double bestTotalDistance = 0.0;
 
-  for (const auto &seg : best->segments) {
+  for (size_t i = 0; i < best->segments.size(); ++i) {
+    const auto &seg = best->segments[i];
     auto *step = reply->add_steps();
 
     double segDist = haversine(seg.startLat, seg.startLon, seg.endLat, seg.endLon);
+
+    if (isIgnorableInternalWalk(seg, segDist, i == 0, i + 1 == best->segments.size())) {
+      reply->mutable_steps()->RemoveLast();
+      continue;
+    }
+
     bestTotalDistance += segDist;
 
     step->set_instruction("Take " + seg.method + " to " + seg.endName);
