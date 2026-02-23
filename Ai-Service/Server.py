@@ -41,40 +41,115 @@ except Exception as error:
     logger.warning(f"Model load failed, using rule-based fallback extractor: {error}")
 
 
+LOCATION_ALIASES = {
+    "الف مسكن": "ألف مسكن",
+    "الالف مسكن": "ألف مسكن",
+    "عباسيه": "العباسية",
+    "العباسيه": "العباسية",
+}
+
+KNOWN_LOCATION_COORDINATES = {
+    "ألف مسكن": (30.1188972, 31.3400652),
+    "الف مسكن": (30.1188972, 31.3400652),
+    "الالف مسكن": (30.1188972, 31.3400652),
+    "العباسية": (30.0727858, 31.2840893),
+    "العباسيه": (30.0727858, 31.2840893),
+    "ميدان العباسية": (30.0650075, 31.2714452),
+}
+
+
+def _normalize_text(value: str) -> str:
+    text = (value or "").strip()
+    text = re.sub(r"\s+", " ", text)
+    return text
+
+
+def _clean_location_candidate(value: str) -> str:
+    candidate = _normalize_text(value)
+    candidate = re.sub(
+        r"^(?:عايز|عايزة|عاوزه|اريد|محتاج|حابب|لو سمحت|ممكن|اروح|اذهب|روح)\s+",
+        "",
+        candidate,
+        flags=re.IGNORECASE,
+    )
+    candidate = re.sub(r"\s+(?:لو سمحت|من فضلك)$", "", candidate, flags=re.IGNORECASE)
+    return candidate.strip(" ,.-")
+
+
+def _apply_alias(location_name: str) -> str:
+    normalized = _normalize_text(location_name)
+    return LOCATION_ALIASES.get(normalized, normalized)
+
+
+def _resolve_known_coordinates(location_name: str):
+    normalized = _normalize_text(location_name).replace("،", "")
+    return KNOWN_LOCATION_COORDINATES.get(normalized)
+
+
+def _extract_with_rules(text: str):
+    normalized = _normalize_text(text)
+
+    patterns = [
+        re.compile(r"^من\s+(?P<from>.+?)\s+(?:الى|إلى)\s+(?P<to>.+)$", re.IGNORECASE),
+        re.compile(
+            r"^(?:عايز|عايزة|عاوزه|اريد|محتاج|حابب)?\s*(?:اروح|اذهب|روح)?\s*(?P<to>.+?)\s+من\s+(?P<from>.+)$",
+            re.IGNORECASE,
+        ),
+        re.compile(r"^from\s+(?P<from>.+?)\s+to\s+(?P<to>.+)$", re.IGNORECASE),
+        re.compile(r"^to\s+(?P<to>.+?)\s+from\s+(?P<from>.+)$", re.IGNORECASE),
+    ]
+
+    for pattern in patterns:
+        match = pattern.search(normalized)
+        if not match:
+            continue
+
+        origin = _clean_location_candidate(match.group("from"))
+        destination = _clean_location_candidate(match.group("to"))
+        if origin and destination:
+            return _apply_alias(origin), _apply_alias(destination)
+
+    if " من " in normalized:
+        before_from, after_from = normalized.rsplit(" من ", 1)
+        origin = _clean_location_candidate(after_from)
+        destination = ""
+
+        if " الى " in before_from:
+            destination = _clean_location_candidate(before_from.split(" الى ")[-1])
+        elif " إلى " in before_from:
+            destination = _clean_location_candidate(before_from.split(" إلى ")[-1])
+        else:
+            tokens = before_from.strip().split()
+            destination = _clean_location_candidate(tokens[-1] if tokens else "")
+
+        if origin and destination:
+            return _apply_alias(origin), _apply_alias(destination)
+
+    return "", ""
+
+
 def extract_locations(text):
     if nlp_pipeline is not None:
         results = nlp_pipeline(text)
         from_loc_name = ""
         to_loc_name = ""
+
         for entity in results:
-            if entity.get("entity_group") == "FROM":
-                from_loc_name = entity.get("word", "")
-            elif entity.get("entity_group") == "TO":
-                to_loc_name = entity.get("word", "")
-        return from_loc_name.strip(), to_loc_name.strip()
+            label = (entity.get("entity_group") or entity.get("entity") or "").upper()
+            word = _clean_location_candidate(entity.get("word", "").replace("##", ""))
 
-    normalized = " ".join((text or "").strip().split())
+            if not word:
+                continue
 
-    match_en = re.search(r"to\s+(.+?)\s+from\s+(.+)$", normalized, flags=re.IGNORECASE)
-    if match_en:
-        return match_en.group(2).strip(), match_en.group(1).strip()
+            if "FROM" in label:
+                from_loc_name = word
+            elif "TO" in label:
+                to_loc_name = word
 
-    if " من " in normalized:
-        before_from, after_from = normalized.rsplit(" من ", 1)
-        origin = after_from.strip()
-        destination = ""
+        if from_loc_name and to_loc_name:
+            return _apply_alias(from_loc_name), _apply_alias(to_loc_name)
 
-        if " الى " in before_from:
-            destination = before_from.split(" الى ")[-1].strip()
-        elif " إلى " in before_from:
-            destination = before_from.split(" إلى ")[-1].strip()
-        else:
-            tokens = before_from.strip().split()
-            destination = tokens[-1].strip() if tokens else ""
-
-        return origin, destination
-
-    return "", ""
+    return _extract_with_rules(text)
 
 
 # Initialize Services
@@ -101,8 +176,12 @@ class TransitInterpreterService(pb2_grpc.TransitInterpreterServicer):
         logger.info(f"📍 Extracted: From '{from_loc_name}' To '{to_loc_name}'")
 
         # 3. Geocode
-        from_coords = geocoder.get_coordinates(from_loc_name)
-        to_coords = geocoder.get_coordinates(to_loc_name)
+        from_coords = _resolve_known_coordinates(
+            from_loc_name
+        ) or geocoder.get_coordinates(from_loc_name)
+        to_coords = _resolve_known_coordinates(to_loc_name) or geocoder.get_coordinates(
+            to_loc_name
+        )
 
         if not from_coords or not to_coords:
             logger.warning("❌ Geocoding failed for one or more locations.")
