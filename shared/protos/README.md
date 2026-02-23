@@ -4,5 +4,7 @@ This directory is the canonical source for gRPC contract files used by all servi
 
 - `interpreter.proto` defines the AI extraction service contract.
 - `routing.proto` defines the routing engine service contract.
+  - Legacy single-route fields are kept for compatibility.
+  - New `query` and `routes[]` fields provide multi-option outputs (`bus_only`, `metro_only`, `microbus_only`, `optimal`).
 
 Service-local proto copies must stay byte-compatible with these files until all services are migrated to compile directly from `shared/protos`.

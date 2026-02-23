@@ -13,9 +13,14 @@ message RouteRequest {
 }
 
 message RouteResponse {
+  // Legacy fields kept for backward compatibility.
   repeated RouteStep steps = 1;
   double total_distance_meters = 2;
   double total_duration_seconds = 3;
+
+  // New multi-option payload.
+  Query query = 10;
+  repeated RouteOption routes = 11;
 }
 
 message Point {
@@ -31,4 +36,30 @@ message RouteStep {
   Point end_location = 5;
   string type = 6;
   string line_name = 7;
+}
+
+message Query {
+  Point origin = 1;
+  Point destination = 2;
+}
+
+message RouteOption {
+  string type = 1;
+  bool found = 2;
+  int32 total_duration_seconds = 3;
+  string total_duration_formatted = 4;
+  int32 total_segments = 5;
+  repeated RouteSegment segments = 6;
+  double total_distance_meters = 7;
+}
+
+message RouteSegment {
+  Point start_location = 1;
+  string start_name = 2;
+  Point end_location = 3;
+  string end_name = 4;
+  string method = 5;
+  int32 num_stops = 6;
+  int32 distance_meters = 7;
+  int32 duration_seconds = 8;
 }
