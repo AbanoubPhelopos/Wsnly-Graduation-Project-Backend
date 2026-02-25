@@ -67,6 +67,12 @@ python manage.py runserver 0.0.0.0:8000
 
 Use `Bearer <jwt_token>` in Swagger Authorize to test protected endpoints.
 
+## Admin Analytics
+
+- Generic analytics endpoint: `GET /api/admin/analytics/routes/query`
+- Supports reusable filters (`source`, `status`, `filter`, `from_date`, `to_date`) and
+  composable query options (`metrics`, `group_by`, `sort`, `order`, `limit`, `offset`).
+
 ## Routing Notes
 
 - `POST /api/route` accepts `filter` enum for both text and map requests: `1=optimal`, `2=fastest`, `3=cheapest`, `4=bus_only`, `5=microbus_only`, `6=metro_only`.

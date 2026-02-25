@@ -12,6 +12,7 @@ from src.Presentation.views.auth_views import (
 from src.Presentation.views.admin_views import (
     ChangeUserRoleView,
     RouteAnalyticsOverviewView,
+    RouteAnalyticsQueryView,
     RouteFilterStatsView,
     RouteAnalyticsTopRoutesView,
     RouteUnresolvedStatsView,
@@ -51,6 +52,11 @@ urlpatterns = [
         "api/admin/analytics/routes/unresolved",
         RouteUnresolvedStatsView.as_view(),
         name="routes-analytics-unresolved",
+    ),
+    path(
+        "api/admin/analytics/routes/query",
+        RouteAnalyticsQueryView.as_view(),
+        name="routes-analytics-query",
     ),
     path("api/route", RouteOrchestratorView.as_view(), name="route-orchestrator"),
     path("api/route/history", RouteHistoryView.as_view(), name="route-history"),

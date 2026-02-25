@@ -55,6 +55,7 @@ Client -> Wslny API -> (optional) Ai-Service -> RoutingEngine -> Wslny API -> Cl
   - `GET /api/admin/analytics/routes/top-routes`
   - `GET /api/admin/analytics/routes/filters`
   - `GET /api/admin/analytics/routes/unresolved`
+  - `GET /api/admin/analytics/routes/query`
 - API docs:
   - `GET /api/schema/`
   - `GET /api/docs/`

@@ -67,6 +67,54 @@ ROUTE_ANALYTICS_QUERY_PARAMETERS = [
     ),
 ]
 
+ROUTE_ANALYTICS_GENERIC_QUERY_PARAMETERS = ROUTE_ANALYTICS_QUERY_PARAMETERS + [
+    OpenApiParameter(
+        name="metrics",
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+        description=(
+            "Comma-separated metrics. Available: requests, success_count, failed_count, "
+            "success_rate_percent, avg_total_latency_ms, avg_ai_latency_ms, "
+            "avg_routing_latency_ms, avg_duration_seconds, avg_distance_meters, "
+            "avg_fare, unresolved_count, unresolved_rate_percent, "
+            "long_walk_count, long_walk_rate_percent"
+        ),
+    ),
+    OpenApiParameter(
+        name="group_by",
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+        description=(
+            "Comma-separated grouping fields. Available: day, week, source, status, "
+            "filter, selected_route_type"
+        ),
+    ),
+    OpenApiParameter(
+        name="sort",
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+        description="Sort field from selected metrics or group_by fields.",
+    ),
+    OpenApiParameter(
+        name="order",
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+        enum=["asc", "desc"],
+    ),
+    OpenApiParameter(
+        name="limit",
+        type=OpenApiTypes.INT,
+        location=OpenApiParameter.QUERY,
+        description="Pagination limit (1..200).",
+    ),
+    OpenApiParameter(
+        name="offset",
+        type=OpenApiTypes.INT,
+        location=OpenApiParameter.QUERY,
+        description="Pagination offset (>=0).",
+    ),
+]
+
 
 class ChangeUserRoleView(APIView):
     permission_classes = [IsAdminUser]
@@ -357,6 +405,66 @@ class RouteUnresolvedStatsView(RouteAnalyticsBaseView):
                 "unresolved_reasons": unresolved,
                 "long_walk_count": long_walk,
                 "top_unresolved_queries": unresolved_queries,
+                "filters": self._serialize_filters(request),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class RouteAnalyticsQueryView(RouteAnalyticsBaseView):
+    @extend_schema(
+        tags=["Admin Analytics"],
+        summary="Generic route analytics query",
+        parameters=ROUTE_ANALYTICS_GENERIC_QUERY_PARAMETERS,
+        responses={
+            200: inline_serializer(
+                name="RouteAnalyticsQueryResponse",
+                fields={
+                    "rows": serializers.ListField(child=serializers.DictField()),
+                    "meta": serializers.DictField(),
+                    "filters": serializers.DictField(),
+                },
+            )
+        },
+    )
+    def get(self, request):
+        queryset = self._apply_filters(RouteHistory.objects.all(), request)
+
+        metrics = RouteAnalyticsService.parse_metrics(
+            request.query_params.get("metrics")
+        )
+        group_by = RouteAnalyticsService.parse_group_by(
+            request.query_params.get("group_by")
+        )
+        limit, offset = RouteAnalyticsService.parse_pagination(
+            request.query_params.get("limit"),
+            request.query_params.get("offset"),
+        )
+        sort_by, order = RouteAnalyticsService.parse_sorting(
+            request.query_params.get("sort"),
+            request.query_params.get("order"),
+            group_by,
+            metrics,
+        )
+
+        rows = RouteAnalyticsService.query_analytics(queryset, metrics, group_by)
+        rows = RouteAnalyticsService.sort_rows(rows, sort_by, order)
+
+        total_rows = len(rows)
+        paginated_rows = rows[offset : offset + limit]
+
+        return Response(
+            {
+                "rows": paginated_rows,
+                "meta": {
+                    "metrics": metrics,
+                    "group_by": group_by,
+                    "sort": sort_by,
+                    "order": order,
+                    "limit": limit,
+                    "offset": offset,
+                    "total_rows": total_rows,
+                },
                 "filters": self._serialize_filters(request),
             },
             status=status.HTTP_200_OK,
