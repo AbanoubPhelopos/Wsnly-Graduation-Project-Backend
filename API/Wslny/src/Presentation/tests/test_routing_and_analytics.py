@@ -5,8 +5,8 @@ from src.Core.Application.Admin.Services.RouteAnalyticsService import (
     RouteAnalyticsService,
 )
 from src.Presentation.views.orchestrator import (
-    RouteBatchSearchView,
     RouteOrchestratorView,
+    RouteSearchView,
 )
 
 
@@ -68,24 +68,10 @@ class RouteOrchestratorParsingTests(SimpleTestCase):
         self.assertEqual(current, (30.1, 31.2))
 
 
-class RouteBatchSearchViewTests(SimpleTestCase):
-    def test_resolve_points_map_request(self):
-        view = RouteBatchSearchView()
-        resolved = view._resolve_points(
-            {
-                "origin": {"lat": 30.05, "lon": 31.23},
-                "destination": {"lat": 30.07, "lon": 31.28},
-            },
-            {},
-        )
+class RouteSearchViewTests(SimpleTestCase):
+    def test_validate_destination_coordinates(self):
+        self.assertTrue(RouteSearchView._validate_destination_coordinates(30.1, 31.2))
+        self.assertFalse(RouteSearchView._validate_destination_coordinates(95.0, 31.2))
 
-        self.assertEqual(resolved["source"], "map")
-        self.assertEqual(resolved["intent"], "map_pin")
-        self.assertEqual(resolved["from_data"]["lat"], 30.05)
-
-    def test_resolve_points_text_without_ai_client(self):
-        view = RouteBatchSearchView()
-        view.ai_client = None
-
-        resolved = view._resolve_points({"text": "go to abbassia"}, {})
-        self.assertEqual(resolved["error"]["code"], "SERVICE_CONFIGURATION_ERROR")
+    def test_normalize_text(self):
+        self.assertEqual(RouteSearchView._normalize_text("  Abbassia  "), "abbassia")

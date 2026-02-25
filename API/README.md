@@ -49,15 +49,15 @@ Client -> Wslny API -> (optional) Ai-Service -> RoutingEngine -> Wslny API -> Cl
   - `POST /api/route` (JWT required)
   - `GET /api/route/history` (JWT required)
   - `POST /api/routes/search` (JWT required)
-  - `POST /api/routes/batch` (JWT required)
+  - `POST /api/routes/search/confirm` (JWT required)
   - `GET /api/routes/metadata` (JWT required)
-  - `POST /api/routes/validate` (JWT required)
 - Admin:
   - `POST /api/admin/change-role`
   - `GET /api/admin/users`
   - `GET /api/admin/analytics/routes/overview`
   - `GET /api/admin/analytics/routes/top-routes`
   - `GET /api/admin/analytics/routes/filters`
+    - returns only top-used filter summary after query filters
   - `GET /api/admin/analytics/routes/unresolved`
   - `GET /api/admin/analytics/routes/query`
     - supports metrics/grouping/pagination with validation errors for bad query options

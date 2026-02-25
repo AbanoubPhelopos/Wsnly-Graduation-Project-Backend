@@ -74,16 +74,15 @@ Use `Bearer <jwt_token>` in Swagger Authorize to test protected endpoints.
   composable query options (`metrics`, `group_by`, `sort`, `order`, `limit`, `offset`).
 - Returns consistent metadata (`meta`) and validates invalid analytics query options
   with `400 INVALID_ANALYTICS_QUERY` details.
+- `GET /api/admin/analytics/routes/filters` returns only the top-used filter summary after applying query filters.
 
 ## Routing Notes
 
 - `POST /api/route` accepts `filter` enum for both text and map requests: `1=optimal`, `2=fastest`, `3=cheapest`, `4=bus_only`, `5=microbus_only`, `6=metro_only`.
-- `POST /api/routes/search` is a client-friendly alias of `POST /api/route`.
-- `POST /api/routes/batch` processes multiple route requests in one call (`requests[]`, max 20).
-- Text requests may include `current_location` for destination-only phrases.
-- Text requests may also pass optional query params `current_latitude` and `current_longitude` (nullable) as fallback current location.
+- `POST /api/routes/search` accepts `destination_text`, current location (`current_location` or query params), and `filter`.
+- If destination is not found, search returns a suggestion response with `Do you mean ...` and destination coordinates.
+- `POST /api/routes/search/confirm` accepts confirmed destination coordinates + current location + `filter`, then returns route.
 - `GET /api/routes/metadata` provides filter dictionary, supported modes, query params, and transport methods.
-- `POST /api/routes/validate` validates request payloads without calling upstream AI/routing services.
 - Response includes one `route` only (not a routes array).
 - Fare behavior:
   - metro: tiered by total metro stops
@@ -98,25 +97,23 @@ curl -X GET "http://localhost:8000/api/routes/metadata" \
 ```
 
 ```bash
-curl -X POST "http://localhost:8000/api/routes/validate?current_latitude=30.05&current_longitude=31.24" \
-  -H "Authorization: Bearer <jwt_token>" \
-  -H "Content-Type: application/json" \
-  -d '{"text":"عايز اروح العباسية","filter":1}'
-```
-
-```bash
-curl -X POST "http://localhost:8000/api/routes/batch" \
+curl -X POST "http://localhost:8000/api/routes/search" \
   -H "Authorization: Bearer <jwt_token>" \
   -H "Content-Type: application/json" \
   -d '{
-    "continue_on_error": true,
-    "requests": [
-      {"text": "عايز اروح العباسية من ألف مسكن", "filter": 1},
-      {
-        "origin": {"lat": 30.0539, "lon": 31.2383},
-        "destination": {"lat": 30.0735, "lon": 31.2823},
-        "filter": 2
-      }
-    ]
+    "destination_text": "العباسية",
+    "current_location": {"lat": 30.1189, "lon": 31.3400},
+    "filter": 1
+  }'
+```
+
+```bash
+curl -X POST "http://localhost:8000/api/routes/search/confirm" \
+  -H "Authorization: Bearer <jwt_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "current_location": {"lat": 30.1189, "lon": 31.3400},
+    "destination": {"name": "العباسية", "lat": 30.0728, "lon": 31.2841},
+    "filter": 1
   }'
 ```

@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework import serializers
 from django.conf import settings
-from django.db.models import Avg, Count
+from django.db.models import Avg, Count, Q
 from drf_spectacular.utils import (
     OpenApiParameter,
     OpenApiResponse,
@@ -361,11 +361,7 @@ class RouteFilterStatsView(RouteAnalyticsBaseView):
             200: inline_serializer(
                 name="RouteFilterStatsResponse",
                 fields={
-                    "by_filter": serializers.ListField(child=serializers.DictField()),
-                    "by_user_filter": serializers.ListField(
-                        child=serializers.DictField()
-                    ),
-                    "filters": serializers.DictField(),
+                    "filter": serializers.DictField(allow_null=True),
                 },
             )
         },
@@ -374,41 +370,39 @@ class RouteFilterStatsView(RouteAnalyticsBaseView):
         queryset = self._apply_filters(
             RouteHistory.objects.filter(has_result=True), request
         )
-        limit, offset = RouteAnalyticsService.parse_pagination(
-            request.query_params.get("limit", 100),
-            request.query_params.get("offset", 0),
-        )
-
-        by_filter = (
-            queryset.values("preference").annotate(count=Count("id")).order_by("-count")
-        )
-
-        by_user_filter_queryset = (
-            queryset.exclude(user__isnull=True)
-            .values("user_id", "user__email", "preference")
+        top_filter = (
+            queryset.values("preference")
             .annotate(
-                count=Count("id"),
+                requests=Count("id"),
                 avg_duration_seconds=Avg("total_duration_seconds"),
                 avg_fare=Avg("estimated_fare"),
+                success_count=Count("id", filter=Q(status=RouteHistory.STATUS_SUCCESS)),
             )
-            .order_by("user_id", "-count")
+            .order_by("-requests")
+            .first()
         )
-        total_rows = by_user_filter_queryset.count()
-        by_user_filter = list(by_user_filter_queryset[offset : offset + limit])
+
+        if not top_filter:
+            return Response({"filter": None}, status=status.HTTP_200_OK)
+
+        requests_count = int(top_filter.get("requests") or 0)
+        success_count = int(top_filter.get("success_count") or 0)
+        success_rate_percent = (
+            round((success_count / requests_count) * 100.0, 2)
+            if requests_count
+            else 0.0
+        )
 
         return Response(
-            self._with_meta(
-                {
-                    "by_filter": list(by_filter),
-                    "by_user_filter": by_user_filter,
-                },
-                request,
-                pagination={
-                    "limit": limit,
-                    "offset": offset,
-                    "total_rows": total_rows,
-                },
-            ),
+            {
+                "filter": {
+                    "name": top_filter.get("preference"),
+                    "requests": requests_count,
+                    "avg_duration_seconds": top_filter.get("avg_duration_seconds"),
+                    "avg_fare": top_filter.get("avg_fare"),
+                    "success_rate_percent": success_rate_percent,
+                }
+            },
             status=status.HTTP_200_OK,
         )
 
