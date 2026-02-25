@@ -48,6 +48,8 @@ Client -> Wslny API -> (optional) Ai-Service -> RoutingEngine -> Wslny API -> Cl
 - Routing:
   - `POST /api/route` (JWT required)
   - `GET /api/route/history` (JWT required)
+  - `POST /api/routes/search` (JWT required)
+  - `POST /api/routes/batch` (JWT required)
   - `GET /api/routes/metadata` (JWT required)
   - `POST /api/routes/validate` (JWT required)
 - Admin:

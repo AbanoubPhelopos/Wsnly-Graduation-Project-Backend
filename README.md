@@ -83,6 +83,8 @@ Pipeline:
 - Auth: `/api/auth/register`, `/api/auth/login`, `/api/auth/google-login`, `/api/auth/profile`
 - Routing: `/api/route`
 - Route history: `/api/route/history`
+- Route search alias: `/api/routes/search`
+- Route batch search: `/api/routes/batch`
 - Route metadata: `/api/routes/metadata`
 - Route payload validation: `/api/routes/validate`
 - Admin analytics:

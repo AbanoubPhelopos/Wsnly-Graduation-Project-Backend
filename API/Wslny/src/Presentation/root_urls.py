@@ -20,6 +20,8 @@ from src.Presentation.views.admin_views import (
 )
 from src.Presentation.views.orchestrator import RouteOrchestratorView
 from src.Presentation.views.orchestrator import RouteHistoryView
+from src.Presentation.views.orchestrator import RouteSearchView
+from src.Presentation.views.orchestrator import RouteBatchSearchView
 from src.Presentation.views.orchestrator import RouteMetadataView
 from src.Presentation.views.orchestrator import RouteValidationView
 
@@ -62,6 +64,8 @@ urlpatterns = [
     ),
     path("api/route", RouteOrchestratorView.as_view(), name="route-orchestrator"),
     path("api/route/history", RouteHistoryView.as_view(), name="route-history"),
+    path("api/routes/search", RouteSearchView.as_view(), name="route-search"),
+    path("api/routes/batch", RouteBatchSearchView.as_view(), name="route-batch"),
     path("api/routes/metadata", RouteMetadataView.as_view(), name="route-metadata"),
     path("api/routes/validate", RouteValidationView.as_view(), name="route-validate"),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),

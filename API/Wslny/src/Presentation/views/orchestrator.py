@@ -1135,3 +1135,309 @@ class RouteValidationView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class RouteSearchView(RouteOrchestratorView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=["Routing"],
+        summary="Search route (client-friendly alias)",
+        description=(
+            "Alias of POST /api/route. Supports text and map requests, "
+            "with filter enum values: 1=optimal, 2=fastest, 3=cheapest, "
+            "4=bus_only, 5=microbus_only, 6=metro_only."
+        ),
+        request=RouteRequestSerializer,
+        parameters=[
+            OpenApiParameter(
+                name="current_latitude",
+                type=OpenApiTypes.FLOAT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Optional current latitude. Can be omitted/null/empty.",
+            ),
+            OpenApiParameter(
+                name="current_longitude",
+                type=OpenApiTypes.FLOAT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Optional current longitude. Can be omitted/null/empty.",
+            ),
+        ],
+        responses={
+            200: RouteSuccessResponseSerializer,
+            400: OpenApiResponse(response=RouteErrorResponseSerializer),
+            401: OpenApiResponse(response=RouteErrorResponseSerializer),
+            404: OpenApiResponse(response=RouteErrorResponseSerializer),
+            422: OpenApiResponse(response=RouteErrorResponseSerializer),
+            503: OpenApiResponse(response=RouteErrorResponseSerializer),
+            504: OpenApiResponse(response=RouteErrorResponseSerializer),
+        },
+        examples=[
+            OpenApiExample(
+                "Search Text Request",
+                value={"text": "عايز اروح العباسيه من مسكن", "filter": 1},
+                request_only=True,
+            ),
+            OpenApiExample(
+                "Search Map Request",
+                value={
+                    "origin": {"lat": 30.0539, "lon": 31.2383},
+                    "destination": {"lat": 30.0735, "lon": 31.2823},
+                    "filter": 2,
+                },
+                request_only=True,
+            ),
+        ],
+    )
+    def post(self, request):
+        return super().post(request)
+
+
+class RouteBatchSearchView(RouteOrchestratorView):
+    permission_classes = [IsAuthenticated]
+
+    def _resolve_points(self, payload, query_params):
+        coordinates = self._parse_coordinates(payload)
+        if coordinates is not None:
+            s_lat, s_lon, d_lat, d_lon = coordinates
+            return {
+                "source": "map",
+                "intent": "map_pin",
+                "from_data": {"name": "Origin", "lat": s_lat, "lon": s_lon},
+                "to_data": {"name": "Destination", "lat": d_lat, "lon": d_lon},
+            }
+
+        text_query = str(payload.get("text") or "").strip()
+        if not text_query:
+            return None
+
+        if self.ai_client is None:
+            return {
+                "error": {
+                    "code": "SERVICE_CONFIGURATION_ERROR",
+                    "message": "AI service client is not configured.",
+                }
+            }
+
+        ai_result = self.ai_client.extract_route(text_query) or {}
+        to_data = ai_result.get("to") or {}
+        from_data = ai_result.get("from") or {}
+
+        if not to_data.get("lat") or not to_data.get("lon"):
+            return {
+                "error": {
+                    "code": "DESTINATION_NOT_FOUND",
+                    "message": "Destination not found from input text.",
+                }
+            }
+
+        current_location = self._parse_current_location(payload, query_params)
+        if not from_data.get("lat") or not from_data.get("lon"):
+            if current_location:
+                from_data = {
+                    "name": "Current Location",
+                    "lat": current_location[0],
+                    "lon": current_location[1],
+                }
+            else:
+                return {
+                    "error": {
+                        "code": "SOURCE_LOCATION_REQUIRED",
+                        "message": "Provide current_location or source location in text.",
+                    }
+                }
+
+        return {
+            "source": "text",
+            "intent": ai_result.get("intent", "unknown"),
+            "from_data": from_data,
+            "to_data": to_data,
+        }
+
+    @extend_schema(
+        tags=["Routing"],
+        summary="Batch route search",
+        description=(
+            "Process multiple route searches in one call. Each request item accepts "
+            "the same payload as POST /api/route."
+        ),
+        request=inline_serializer(
+            name="RouteBatchSearchRequest",
+            fields={
+                "requests": serializers.ListField(child=serializers.DictField()),
+                "continue_on_error": serializers.BooleanField(required=False),
+            },
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="current_latitude",
+                type=OpenApiTypes.FLOAT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+            ),
+            OpenApiParameter(
+                name="current_longitude",
+                type=OpenApiTypes.FLOAT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+            ),
+        ],
+        responses={
+            200: inline_serializer(
+                name="RouteBatchSearchResponse",
+                fields={
+                    "request_id": serializers.CharField(),
+                    "total": serializers.IntegerField(),
+                    "succeeded": serializers.IntegerField(),
+                    "failed": serializers.IntegerField(),
+                    "results": serializers.ListField(child=serializers.DictField()),
+                },
+            ),
+            400: OpenApiResponse(response=RouteErrorResponseSerializer),
+            503: OpenApiResponse(response=RouteErrorResponseSerializer),
+        },
+    )
+    def post(self, request):
+        request_id = str(uuid4())
+        data = request.data if isinstance(request.data, dict) else {}
+        requests_payload = data.get("requests")
+        continue_on_error = bool(data.get("continue_on_error", True))
+
+        if self.client_boot_error:
+            return self._error_response(
+                request_id,
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "SERVICE_CONFIGURATION_ERROR",
+                self.client_boot_error,
+            )
+
+        if not isinstance(requests_payload, list) or not requests_payload:
+            return self._error_response(
+                request_id,
+                status.HTTP_400_BAD_REQUEST,
+                "INVALID_BATCH_REQUEST",
+                "'requests' must be a non-empty list.",
+            )
+
+        if len(requests_payload) > 20:
+            return self._error_response(
+                request_id,
+                status.HTTP_400_BAD_REQUEST,
+                "BATCH_LIMIT_EXCEEDED",
+                "Maximum batch size is 20 requests.",
+            )
+
+        results = []
+        succeeded = 0
+        failed = 0
+
+        for index, payload in enumerate(requests_payload):
+            item_request_id = str(uuid4())
+            if not isinstance(payload, dict):
+                failed += 1
+                results.append(
+                    {
+                        "index": index,
+                        "ok": False,
+                        "error": {
+                            "code": "INVALID_ITEM",
+                            "message": "Each item in requests must be an object.",
+                        },
+                    }
+                )
+                if not continue_on_error:
+                    break
+                continue
+
+            route_filter = self._parse_filter(payload)
+            try:
+                point_resolution = self._resolve_points(payload, request.query_params)
+                if point_resolution is None:
+                    raise ValueError(
+                        "Provide either 'text' or both 'origin' and 'destination'."
+                    )
+                if point_resolution.get("error"):
+                    raise ValueError(
+                        f"{point_resolution['error']['code']}: {point_resolution['error']['message']}"
+                    )
+
+                from_data = point_resolution["from_data"]
+                to_data = point_resolution["to_data"]
+                source = point_resolution["source"]
+                intent = point_resolution["intent"]
+
+                if self.routing_client is None:
+                    raise ValueError(
+                        "SERVICE_CONFIGURATION_ERROR: Routing service client is not configured."
+                    )
+
+                route_result = self.routing_client.get_route(
+                    float(from_data["lat"]),
+                    float(from_data["lon"]),
+                    float(to_data["lat"]),
+                    float(to_data["lon"]),
+                )
+                route_result, selected_route = self._select_route(
+                    route_result, route_filter
+                )
+                if selected_route is None:
+                    raise ValueError(f"No route found for filter '{route_filter}'.")
+
+                results.append(
+                    {
+                        "index": index,
+                        "ok": True,
+                        "data": self._success_response(
+                            request_id=item_request_id,
+                            source=source,
+                            route_result=route_result,
+                            from_data=from_data,
+                            to_data=to_data,
+                            intent=intent,
+                            route_filter=route_filter,
+                            selected_route=selected_route,
+                        ).data,
+                    }
+                )
+                succeeded += 1
+            except (AiGrpcClientError, RoutingGrpcClientError, grpc.RpcError) as error:
+                failed += 1
+                results.append(
+                    {
+                        "index": index,
+                        "ok": False,
+                        "error": {
+                            "code": "UPSTREAM_ERROR",
+                            "message": str(error),
+                        },
+                    }
+                )
+                if not continue_on_error:
+                    break
+            except Exception as error:  # noqa: BLE001
+                failed += 1
+                results.append(
+                    {
+                        "index": index,
+                        "ok": False,
+                        "error": {
+                            "code": "INVALID_ITEM_REQUEST",
+                            "message": str(error),
+                        },
+                    }
+                )
+                if not continue_on_error:
+                    break
+
+        return Response(
+            {
+                "request_id": request_id,
+                "total": len(requests_payload),
+                "succeeded": succeeded,
+                "failed": failed,
+                "results": results,
+            },
+            status=status.HTTP_200_OK,
+        )
