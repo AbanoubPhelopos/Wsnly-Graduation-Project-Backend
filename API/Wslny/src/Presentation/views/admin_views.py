@@ -5,7 +5,6 @@ from rest_framework import serializers
 from django.conf import settings
 from django.db.models import Avg, Count
 from django.db.models.functions import TruncDate
-from django.utils.dateparse import parse_date
 from drf_spectacular.utils import (
     OpenApiParameter,
     OpenApiResponse,
@@ -22,6 +21,9 @@ from src.Core.Application.Admin.Queries.GetUsersQuery import (
     GetUsersQuery,
     GetUsersQueryHandler,
 )
+from src.Core.Application.Admin.Services.RouteAnalyticsService import (
+    RouteAnalyticsService,
+)
 from src.Infrastructure.History.models import RouteHistory
 from src.Presentation.schemas import (
     ChangeUserRoleRequestSerializer,
@@ -29,6 +31,41 @@ from src.Presentation.schemas import (
     UserSummarySerializer,
     ValidationErrorsResponseSerializer,
 )
+
+
+ROUTE_ANALYTICS_QUERY_PARAMETERS = [
+    OpenApiParameter(
+        name="source",
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+        enum=["text", "map"],
+    ),
+    OpenApiParameter(
+        name="status",
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+        enum=["success", "failed"],
+    ),
+    OpenApiParameter(
+        name="filter",
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+        description=(
+            "Route filter name or enum value: optimal/fastest/cheapest/"
+            "bus_only/microbus_only/metro_only or 1..6"
+        ),
+    ),
+    OpenApiParameter(
+        name="from_date",
+        type=OpenApiTypes.DATE,
+        location=OpenApiParameter.QUERY,
+    ),
+    OpenApiParameter(
+        name="to_date",
+        type=OpenApiTypes.DATE,
+        location=OpenApiParameter.QUERY,
+    ),
+]
 
 
 class ChangeUserRoleView(APIView):
@@ -94,67 +131,18 @@ class RouteAnalyticsBaseView(APIView):
 
     @staticmethod
     def _apply_filters(queryset, request):
-        source = request.query_params.get("source")
-        status_value = request.query_params.get("status")
-        route_filter = request.query_params.get("filter")
-        from_date = request.query_params.get("from_date")
-        to_date = request.query_params.get("to_date")
+        return RouteAnalyticsService.apply_filters(queryset, request.query_params)
 
-        if source in {RouteHistory.SOURCE_TEXT, RouteHistory.SOURCE_MAP}:
-            queryset = queryset.filter(source_type=source)
-
-        if status_value in {RouteHistory.STATUS_SUCCESS, RouteHistory.STATUS_FAILED}:
-            queryset = queryset.filter(status=status_value)
-
-        if route_filter in {
-            RouteHistory.PREFERENCE_OPTIMAL,
-            RouteHistory.PREFERENCE_FASTEST,
-            RouteHistory.PREFERENCE_CHEAPEST,
-            RouteHistory.PREFERENCE_BUS_ONLY,
-            RouteHistory.PREFERENCE_MICROBUS_ONLY,
-            RouteHistory.PREFERENCE_METRO_ONLY,
-        }:
-            queryset = queryset.filter(preference=route_filter)
-
-        if from_date:
-            parsed_from = parse_date(from_date)
-            if parsed_from:
-                queryset = queryset.filter(created_at__date__gte=parsed_from)
-
-        if to_date:
-            parsed_to = parse_date(to_date)
-            if parsed_to:
-                queryset = queryset.filter(created_at__date__lte=parsed_to)
-
-        return queryset
+    @staticmethod
+    def _serialize_filters(request):
+        return RouteAnalyticsService.serialize_applied_filters(request.query_params)
 
 
 class RouteAnalyticsOverviewView(RouteAnalyticsBaseView):
     @extend_schema(
         tags=["Admin Analytics"],
         summary="Route analytics overview",
-        parameters=[
-            OpenApiParameter(
-                name="source",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                enum=["text", "map"],
-            ),
-            OpenApiParameter(
-                name="status",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                enum=["success", "failed"],
-            ),
-            OpenApiParameter(
-                name="from_date",
-                type=OpenApiTypes.DATE,
-                location=OpenApiParameter.QUERY,
-            ),
-            OpenApiParameter(
-                name="to_date", type=OpenApiTypes.DATE, location=OpenApiParameter.QUERY
-            ),
-        ],
+        parameters=ROUTE_ANALYTICS_QUERY_PARAMETERS,
         responses={
             200: inline_serializer(
                 name="RouteAnalyticsOverviewResponse",
@@ -222,13 +210,7 @@ class RouteAnalyticsOverviewView(RouteAnalyticsBaseView):
                     "distance_meters": latency["avg_distance_meters"],
                 },
                 "daily_usage": daily_usage,
-                "filters": {
-                    "source": request.query_params.get("source"),
-                    "status": request.query_params.get("status"),
-                    "filter": request.query_params.get("filter"),
-                    "from_date": request.query_params.get("from_date"),
-                    "to_date": request.query_params.get("to_date"),
-                },
+                "filters": self._serialize_filters(request),
             },
             status=status.HTTP_200_OK,
         )
@@ -238,28 +220,7 @@ class RouteAnalyticsTopRoutesView(RouteAnalyticsBaseView):
     @extend_schema(
         tags=["Admin Analytics"],
         summary="Top requested routes",
-        parameters=[
-            OpenApiParameter(
-                name="source",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                enum=["text", "map"],
-            ),
-            OpenApiParameter(
-                name="status",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                enum=["success", "failed"],
-            ),
-            OpenApiParameter(
-                name="from_date",
-                type=OpenApiTypes.DATE,
-                location=OpenApiParameter.QUERY,
-            ),
-            OpenApiParameter(
-                name="to_date", type=OpenApiTypes.DATE, location=OpenApiParameter.QUERY
-            ),
-        ],
+        parameters=ROUTE_ANALYTICS_QUERY_PARAMETERS,
         responses={
             200: inline_serializer(
                 name="RouteAnalyticsTopRoutesResponse",
@@ -291,13 +252,7 @@ class RouteAnalyticsTopRoutesView(RouteAnalyticsBaseView):
         return Response(
             {
                 "top_routes": top_pairs,
-                "filters": {
-                    "source": request.query_params.get("source"),
-                    "status": request.query_params.get("status"),
-                    "filter": request.query_params.get("filter"),
-                    "from_date": request.query_params.get("from_date"),
-                    "to_date": request.query_params.get("to_date"),
-                },
+                "filters": self._serialize_filters(request),
             },
             status=status.HTTP_200_OK,
         )
@@ -307,30 +262,7 @@ class RouteFilterStatsView(RouteAnalyticsBaseView):
     @extend_schema(
         tags=["Admin Analytics"],
         summary="Per-user route filter statistics",
-        parameters=[
-            OpenApiParameter(
-                name="source",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                enum=["text", "map"],
-            ),
-            OpenApiParameter(
-                name="status",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                enum=["success", "failed"],
-            ),
-            OpenApiParameter(
-                name="from_date",
-                type=OpenApiTypes.DATE,
-                location=OpenApiParameter.QUERY,
-            ),
-            OpenApiParameter(
-                name="to_date",
-                type=OpenApiTypes.DATE,
-                location=OpenApiParameter.QUERY,
-            ),
-        ],
+        parameters=ROUTE_ANALYTICS_QUERY_PARAMETERS,
         responses={
             200: inline_serializer(
                 name="RouteFilterStatsResponse",
@@ -368,13 +300,7 @@ class RouteFilterStatsView(RouteAnalyticsBaseView):
             {
                 "by_filter": list(by_filter),
                 "by_user_filter": list(by_user_filter),
-                "filters": {
-                    "source": request.query_params.get("source"),
-                    "status": request.query_params.get("status"),
-                    "filter": request.query_params.get("filter"),
-                    "from_date": request.query_params.get("from_date"),
-                    "to_date": request.query_params.get("to_date"),
-                },
+                "filters": self._serialize_filters(request),
             },
             status=status.HTTP_200_OK,
         )
@@ -384,30 +310,7 @@ class RouteUnresolvedStatsView(RouteAnalyticsBaseView):
     @extend_schema(
         tags=["Admin Analytics"],
         summary="Unresolved and long-walk route statistics",
-        parameters=[
-            OpenApiParameter(
-                name="source",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                enum=["text", "map"],
-            ),
-            OpenApiParameter(
-                name="status",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                enum=["success", "failed"],
-            ),
-            OpenApiParameter(
-                name="from_date",
-                type=OpenApiTypes.DATE,
-                location=OpenApiParameter.QUERY,
-            ),
-            OpenApiParameter(
-                name="to_date",
-                type=OpenApiTypes.DATE,
-                location=OpenApiParameter.QUERY,
-            ),
-        ],
+        parameters=ROUTE_ANALYTICS_QUERY_PARAMETERS,
         responses={
             200: inline_serializer(
                 name="RouteUnresolvedStatsResponse",
@@ -454,13 +357,7 @@ class RouteUnresolvedStatsView(RouteAnalyticsBaseView):
                 "unresolved_reasons": unresolved,
                 "long_walk_count": long_walk,
                 "top_unresolved_queries": unresolved_queries,
-                "filters": {
-                    "source": request.query_params.get("source"),
-                    "status": request.query_params.get("status"),
-                    "filter": request.query_params.get("filter"),
-                    "from_date": request.query_params.get("from_date"),
-                    "to_date": request.query_params.get("to_date"),
-                },
+                "filters": self._serialize_filters(request),
             },
             status=status.HTTP_200_OK,
         )
