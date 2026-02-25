@@ -20,6 +20,8 @@ from src.Presentation.views.admin_views import (
 )
 from src.Presentation.views.orchestrator import RouteOrchestratorView
 from src.Presentation.views.orchestrator import RouteHistoryView
+from src.Presentation.views.orchestrator import RouteMetadataView
+from src.Presentation.views.orchestrator import RouteValidationView
 
 
 urlpatterns = [
@@ -60,6 +62,8 @@ urlpatterns = [
     ),
     path("api/route", RouteOrchestratorView.as_view(), name="route-orchestrator"),
     path("api/route/history", RouteHistoryView.as_view(), name="route-history"),
+    path("api/routes/metadata", RouteMetadataView.as_view(), name="route-metadata"),
+    path("api/routes/validate", RouteValidationView.as_view(), name="route-validate"),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path(
         "api/docs/",

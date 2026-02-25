@@ -4,7 +4,7 @@ import time
 from uuid import uuid4
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status
+from rest_framework import serializers, status
 from rest_framework.permissions import IsAuthenticated
 from drf_spectacular.utils import (
     OpenApiExample,
@@ -12,6 +12,7 @@ from drf_spectacular.utils import (
     OpenApiResponse,
     OpenApiTypes,
     extend_schema,
+    inline_serializer,
 )
 from src.Infrastructure.History.models import RouteHistory
 from src.Infrastructure.GrpcClients.ai_client import AiGrpcClient, AiGrpcClientError
@@ -20,6 +21,7 @@ from src.Infrastructure.GrpcClients.routing_client import (
     RoutingGrpcClientError,
 )
 from src.Presentation.schemas import (
+    ROUTE_FILTER_ENUM_CHOICES,
     RouteErrorResponseSerializer,
     RouteHistoryItemSerializer,
     RouteRequestSerializer,
@@ -971,3 +973,165 @@ class RouteHistoryView(APIView):
             for item in entries
         ]
         return Response(payload, status=status.HTTP_200_OK)
+
+
+class RouteMetadataView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=["Routing"],
+        summary="Get routing metadata",
+        responses={
+            200: inline_serializer(
+                name="RouteMetadataResponse",
+                fields={
+                    "filters": serializers.ListField(child=serializers.DictField()),
+                    "request_modes": serializers.ListField(
+                        child=serializers.CharField()
+                    ),
+                    "query_params": serializers.ListField(
+                        child=serializers.DictField()
+                    ),
+                    "coordinate_bounds": serializers.DictField(),
+                    "transport_methods": serializers.ListField(
+                        child=serializers.CharField()
+                    ),
+                },
+            )
+        },
+    )
+    def get(self, request):
+        filters = [
+            {"value": value, "name": name} for value, name in ROUTE_FILTER_ENUM_CHOICES
+        ]
+        return Response(
+            {
+                "filters": filters,
+                "request_modes": ["text", "map"],
+                "query_params": [
+                    {
+                        "name": "current_latitude",
+                        "type": "float",
+                        "required": False,
+                        "nullable": True,
+                    },
+                    {
+                        "name": "current_longitude",
+                        "type": "float",
+                        "required": False,
+                        "nullable": True,
+                    },
+                ],
+                "coordinate_bounds": {
+                    "latitude": {"min": -90.0, "max": 90.0},
+                    "longitude": {"min": -180.0, "max": 180.0},
+                },
+                "transport_methods": ["walking", "bus", "microbus", "metro"],
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class RouteValidationView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=["Routing"],
+        summary="Validate route request payload",
+        description=(
+            "Validates route request body and optional current location query params "
+            "without executing AI or routing engines."
+        ),
+        request=RouteRequestSerializer,
+        parameters=[
+            OpenApiParameter(
+                name="current_latitude",
+                type=OpenApiTypes.FLOAT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Optional current latitude. Can be omitted/null/empty.",
+            ),
+            OpenApiParameter(
+                name="current_longitude",
+                type=OpenApiTypes.FLOAT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Optional current longitude. Can be omitted/null/empty.",
+            ),
+        ],
+        responses={
+            200: inline_serializer(
+                name="RouteValidationResponse",
+                fields={
+                    "valid": serializers.BooleanField(),
+                    "mode": serializers.CharField(allow_null=True),
+                    "normalized": serializers.DictField(),
+                    "errors": serializers.ListField(child=serializers.DictField()),
+                },
+            )
+        },
+    )
+    def post(self, request):
+        data = request.data
+        route_filter_name = RouteOrchestratorView._parse_filter(data)
+        route_filter_enum = RouteOrchestratorView._filter_to_enum(route_filter_name)
+
+        has_text = (
+            isinstance(data.get("text"), str) and data.get("text", "").strip() != ""
+        )
+        has_coordinates = "origin" in data and "destination" in data
+        parsed_coordinates = RouteOrchestratorView._parse_coordinates(data)
+        current_location = RouteOrchestratorView._parse_current_location(
+            data,
+            request.query_params,
+        )
+
+        errors = []
+        mode = None
+
+        if has_text and has_coordinates:
+            errors.append(
+                {
+                    "code": "INVALID_REQUEST_MODE",
+                    "message": "Provide either text or origin/destination, not both.",
+                }
+            )
+        elif has_coordinates:
+            mode = "map"
+            if parsed_coordinates is None:
+                errors.append(
+                    {
+                        "code": "INVALID_COORDINATES",
+                        "message": "Invalid coordinate format.",
+                    }
+                )
+        elif has_text:
+            mode = "text"
+        else:
+            errors.append(
+                {
+                    "code": "INVALID_REQUEST_BODY",
+                    "message": "Provide either 'text' or both 'origin' and 'destination'.",
+                }
+            )
+
+        return Response(
+            {
+                "valid": len(errors) == 0,
+                "mode": mode,
+                "normalized": {
+                    "filter": route_filter_enum,
+                    "filter_name": route_filter_name,
+                    "current_location": (
+                        None
+                        if current_location is None
+                        else {
+                            "lat": current_location[0],
+                            "lon": current_location[1],
+                        }
+                    ),
+                },
+                "errors": errors,
+            },
+            status=status.HTTP_200_OK,
+        )
