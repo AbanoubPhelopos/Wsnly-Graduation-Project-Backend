@@ -89,3 +89,34 @@ Use `Bearer <jwt_token>` in Swagger Authorize to test protected endpoints.
   - metro: tiered by total metro stops
   - bus: `20 EGP` per bus ride segment
   - microbus: `10 EGP` per microbus ride segment
+
+## Client Integration Examples
+
+```bash
+curl -X GET "http://localhost:8000/api/routes/metadata" \
+  -H "Authorization: Bearer <jwt_token>"
+```
+
+```bash
+curl -X POST "http://localhost:8000/api/routes/validate?current_latitude=30.05&current_longitude=31.24" \
+  -H "Authorization: Bearer <jwt_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"text":"عايز اروح العباسية","filter":1}'
+```
+
+```bash
+curl -X POST "http://localhost:8000/api/routes/batch" \
+  -H "Authorization: Bearer <jwt_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "continue_on_error": true,
+    "requests": [
+      {"text": "عايز اروح العباسية من ألف مسكن", "filter": 1},
+      {
+        "origin": {"lat": 30.0539, "lon": 31.2383},
+        "destination": {"lat": 30.0735, "lon": 31.2823},
+        "filter": 2
+      }
+    ]
+  }'
+```
