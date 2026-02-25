@@ -6,6 +6,13 @@ from django.utils.dateparse import parse_date
 from src.Infrastructure.History.models import RouteHistory
 
 
+class RouteAnalyticsQueryValidationError(Exception):
+    def __init__(self, details):
+        self.details = details
+        message = "; ".join(details) if details else "Invalid analytics query"
+        super().__init__(message)
+
+
 class RouteAnalyticsService:
     FILTER_ENUM_TO_PREFERENCE = {
         1: RouteHistory.PREFERENCE_OPTIMAL,
@@ -98,6 +105,25 @@ class RouteAnalyticsService:
         return parsed
 
     @staticmethod
+    def _parse_csv_values_with_invalid(raw_value, allowed_values):
+        if raw_value in (None, ""):
+            return [], []
+
+        parsed = []
+        invalid = []
+        for token in str(raw_value).split(","):
+            normalized = token.strip().lower()
+            if not normalized:
+                continue
+            if normalized in allowed_values:
+                if normalized not in parsed:
+                    parsed.append(normalized)
+            elif normalized not in invalid:
+                invalid.append(normalized)
+
+        return parsed, invalid
+
+    @staticmethod
     def parse_metrics(raw_metrics):
         metrics = RouteAnalyticsService._parse_csv_values(
             raw_metrics,
@@ -146,6 +172,81 @@ class RouteAnalyticsService:
             return "requests", "desc"
 
         return sort_by, order
+
+    @staticmethod
+    def parse_query_options(query_params):
+        errors = []
+
+        metrics, invalid_metrics = RouteAnalyticsService._parse_csv_values_with_invalid(
+            query_params.get("metrics"),
+            RouteAnalyticsService.ALLOWED_METRICS,
+        )
+        if invalid_metrics:
+            errors.append("Unsupported metrics: " + ", ".join(sorted(invalid_metrics)))
+        if not metrics:
+            metrics = list(RouteAnalyticsService.DEFAULT_METRICS)
+
+        group_by, invalid_group_by = (
+            RouteAnalyticsService._parse_csv_values_with_invalid(
+                query_params.get("group_by"),
+                RouteAnalyticsService.ALLOWED_GROUP_BY,
+            )
+        )
+        if invalid_group_by:
+            errors.append(
+                "Unsupported group_by fields: " + ", ".join(sorted(invalid_group_by))
+            )
+        if not group_by:
+            group_by = list(RouteAnalyticsService.DEFAULT_GROUP_BY)
+
+        raw_limit = query_params.get("limit")
+        raw_offset = query_params.get("offset")
+        try:
+            limit = int(raw_limit) if raw_limit not in (None, "") else 50
+        except (TypeError, ValueError):
+            errors.append("limit must be an integer")
+            limit = 50
+        try:
+            offset = int(raw_offset) if raw_offset not in (None, "") else 0
+        except (TypeError, ValueError):
+            errors.append("offset must be an integer")
+            offset = 0
+
+        if limit < 1 or limit > 200:
+            errors.append("limit must be between 1 and 200")
+            limit = min(max(limit, 1), 200)
+        if offset < 0:
+            errors.append("offset must be greater than or equal to 0")
+            offset = max(offset, 0)
+
+        sort_by, order = RouteAnalyticsService.parse_sorting(
+            query_params.get("sort"),
+            query_params.get("order"),
+            group_by,
+            metrics,
+        )
+
+        requested_sort = query_params.get("sort")
+        if requested_sort not in (None, ""):
+            allowed_sort_fields = set(group_by) | set(metrics)
+            if requested_sort not in allowed_sort_fields:
+                errors.append("sort must be one of selected group_by or metrics fields")
+
+        requested_order = str(query_params.get("order") or "").strip().lower()
+        if requested_order and requested_order not in {"asc", "desc"}:
+            errors.append("order must be 'asc' or 'desc'")
+
+        if errors:
+            raise RouteAnalyticsQueryValidationError(errors)
+
+        return {
+            "metrics": metrics,
+            "group_by": group_by,
+            "limit": limit,
+            "offset": offset,
+            "sort": sort_by,
+            "order": order,
+        }
 
     @staticmethod
     def _annotations_for_metrics(metrics):

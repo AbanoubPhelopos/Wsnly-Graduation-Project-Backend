@@ -4,7 +4,6 @@ from rest_framework import status
 from rest_framework import serializers
 from django.conf import settings
 from django.db.models import Avg, Count
-from django.db.models.functions import TruncDate
 from drf_spectacular.utils import (
     OpenApiParameter,
     OpenApiResponse,
@@ -22,6 +21,7 @@ from src.Core.Application.Admin.Queries.GetUsersQuery import (
     GetUsersQueryHandler,
 )
 from src.Core.Application.Admin.Services.RouteAnalyticsService import (
+    RouteAnalyticsQueryValidationError,
     RouteAnalyticsService,
 )
 from src.Infrastructure.History.models import RouteHistory
@@ -185,6 +185,16 @@ class RouteAnalyticsBaseView(APIView):
     def _serialize_filters(request):
         return RouteAnalyticsService.serialize_applied_filters(request.query_params)
 
+    def _with_meta(self, payload, request, pagination=None, query=None):
+        envelope = dict(payload)
+        envelope["filters"] = self._serialize_filters(request)
+        envelope["meta"] = {
+            "filters": envelope["filters"],
+            "pagination": pagination,
+            "query": query,
+        }
+        return envelope
+
 
 class RouteAnalyticsOverviewView(RouteAnalyticsBaseView):
     @extend_schema(
@@ -206,60 +216,83 @@ class RouteAnalyticsOverviewView(RouteAnalyticsBaseView):
     )
     def get(self, request):
         queryset = self._apply_filters(RouteHistory.objects.all(), request)
-        total_requests = queryset.count()
-        success_count = queryset.filter(status=RouteHistory.STATUS_SUCCESS).count()
-        failed_count = total_requests - success_count
+        totals_row = RouteAnalyticsService.query_analytics(
+            queryset,
+            metrics=[
+                "requests",
+                "success_count",
+                "failed_count",
+                "success_rate_percent",
+            ],
+            group_by=[],
+        )[0]["metrics"]
 
-        source_counts = queryset.values("source_type").annotate(count=Count("id"))
+        source_rows = RouteAnalyticsService.query_analytics(
+            queryset,
+            metrics=["requests"],
+            group_by=["source"],
+        )
         source_breakdown = {
-            item["source_type"]: item["count"] for item in source_counts
+            item["group"].get("source"): item["metrics"].get("requests")
+            for item in source_rows
+            if item["group"].get("source")
         }
 
-        latency = queryset.aggregate(
-            avg_ai_latency_ms=Avg("ai_latency_ms"),
-            avg_routing_latency_ms=Avg("routing_latency_ms"),
-            avg_total_latency_ms=Avg("total_latency_ms"),
-            avg_duration_seconds=Avg("total_duration_seconds"),
-            avg_distance_meters=Avg("total_distance_meters"),
-        )
+        averages = RouteAnalyticsService.query_analytics(
+            queryset,
+            metrics=[
+                "avg_ai_latency_ms",
+                "avg_routing_latency_ms",
+                "avg_total_latency_ms",
+                "avg_duration_seconds",
+                "avg_distance_meters",
+            ],
+            group_by=[],
+        )[0]["metrics"]
 
-        daily_usage = list(
-            queryset.annotate(day=TruncDate("created_at"))
-            .values("day")
-            .annotate(total=Count("id"))
-            .order_by("day")
+        daily_usage_rows = RouteAnalyticsService.query_analytics(
+            queryset,
+            metrics=["requests"],
+            group_by=["day"],
         )
-
-        success_rate = (
-            (success_count / total_requests * 100.0) if total_requests else 0.0
-        )
+        daily_usage = [
+            {
+                "day": row["group"].get("day"),
+                "total": row["metrics"].get("requests"),
+            }
+            for row in RouteAnalyticsService.sort_rows(daily_usage_rows, "day", "asc")
+        ]
 
         return Response(
-            {
-                "totals": {
-                    "requests": total_requests,
-                    "success": success_count,
-                    "failed": failed_count,
-                    "success_rate_percent": round(success_rate, 2),
+            self._with_meta(
+                {
+                    "totals": {
+                        "requests": totals_row.get("requests", 0),
+                        "success": totals_row.get("success_count", 0),
+                        "failed": totals_row.get("failed_count", 0),
+                        "success_rate_percent": totals_row.get(
+                            "success_rate_percent", 0.0
+                        ),
+                    },
+                    "source_breakdown": {
+                        RouteHistory.SOURCE_TEXT: source_breakdown.get(
+                            RouteHistory.SOURCE_TEXT, 0
+                        ),
+                        RouteHistory.SOURCE_MAP: source_breakdown.get(
+                            RouteHistory.SOURCE_MAP, 0
+                        ),
+                    },
+                    "averages": {
+                        "ai_latency_ms": averages.get("avg_ai_latency_ms"),
+                        "routing_latency_ms": averages.get("avg_routing_latency_ms"),
+                        "total_latency_ms": averages.get("avg_total_latency_ms"),
+                        "duration_seconds": averages.get("avg_duration_seconds"),
+                        "distance_meters": averages.get("avg_distance_meters"),
+                    },
+                    "daily_usage": daily_usage,
                 },
-                "source_breakdown": {
-                    RouteHistory.SOURCE_TEXT: source_breakdown.get(
-                        RouteHistory.SOURCE_TEXT, 0
-                    ),
-                    RouteHistory.SOURCE_MAP: source_breakdown.get(
-                        RouteHistory.SOURCE_MAP, 0
-                    ),
-                },
-                "averages": {
-                    "ai_latency_ms": latency["avg_ai_latency_ms"],
-                    "routing_latency_ms": latency["avg_routing_latency_ms"],
-                    "total_latency_ms": latency["avg_total_latency_ms"],
-                    "duration_seconds": latency["avg_duration_seconds"],
-                    "distance_meters": latency["avg_distance_meters"],
-                },
-                "daily_usage": daily_usage,
-                "filters": self._serialize_filters(request),
-            },
+                request,
+            ),
             status=status.HTTP_200_OK,
         )
 
@@ -284,8 +317,12 @@ class RouteAnalyticsTopRoutesView(RouteAnalyticsBaseView):
             RouteHistory.objects.filter(status=RouteHistory.STATUS_SUCCESS),
             request,
         )
+        limit, offset = RouteAnalyticsService.parse_pagination(
+            request.query_params.get("limit", 10),
+            request.query_params.get("offset", 0),
+        )
 
-        top_pairs = list(
+        top_pairs_queryset = (
             queryset.exclude(origin_name__isnull=True)
             .exclude(destination_name__isnull=True)
             .values("origin_name", "destination_name")
@@ -294,14 +331,23 @@ class RouteAnalyticsTopRoutesView(RouteAnalyticsBaseView):
                 avg_duration_seconds=Avg("total_duration_seconds"),
                 avg_distance_meters=Avg("total_distance_meters"),
             )
-            .order_by("-requests")[:10]
+            .order_by("-requests")
         )
+        total_rows = top_pairs_queryset.count()
+        top_pairs = list(top_pairs_queryset[offset : offset + limit])
 
         return Response(
-            {
-                "top_routes": top_pairs,
-                "filters": self._serialize_filters(request),
-            },
+            self._with_meta(
+                {
+                    "top_routes": top_pairs,
+                },
+                request,
+                pagination={
+                    "limit": limit,
+                    "offset": offset,
+                    "total_rows": total_rows,
+                },
+            ),
             status=status.HTTP_200_OK,
         )
 
@@ -328,12 +374,16 @@ class RouteFilterStatsView(RouteAnalyticsBaseView):
         queryset = self._apply_filters(
             RouteHistory.objects.filter(has_result=True), request
         )
+        limit, offset = RouteAnalyticsService.parse_pagination(
+            request.query_params.get("limit", 100),
+            request.query_params.get("offset", 0),
+        )
 
         by_filter = (
             queryset.values("preference").annotate(count=Count("id")).order_by("-count")
         )
 
-        by_user_filter = (
+        by_user_filter_queryset = (
             queryset.exclude(user__isnull=True)
             .values("user_id", "user__email", "preference")
             .annotate(
@@ -343,13 +393,22 @@ class RouteFilterStatsView(RouteAnalyticsBaseView):
             )
             .order_by("user_id", "-count")
         )
+        total_rows = by_user_filter_queryset.count()
+        by_user_filter = list(by_user_filter_queryset[offset : offset + limit])
 
         return Response(
-            {
-                "by_filter": list(by_filter),
-                "by_user_filter": list(by_user_filter),
-                "filters": self._serialize_filters(request),
-            },
+            self._with_meta(
+                {
+                    "by_filter": list(by_filter),
+                    "by_user_filter": by_user_filter,
+                },
+                request,
+                pagination={
+                    "limit": limit,
+                    "offset": offset,
+                    "total_rows": total_rows,
+                },
+            ),
             status=status.HTTP_200_OK,
         )
 
@@ -377,6 +436,10 @@ class RouteUnresolvedStatsView(RouteAnalyticsBaseView):
     )
     def get(self, request):
         queryset = self._apply_filters(RouteHistory.objects.all(), request)
+        limit, offset = RouteAnalyticsService.parse_pagination(
+            request.query_params.get("limit", 20),
+            request.query_params.get("offset", 0),
+        )
 
         unresolved = list(
             queryset.filter(has_result=False)
@@ -392,21 +455,30 @@ class RouteUnresolvedStatsView(RouteAnalyticsBaseView):
             walk_distance_meters__gte=settings.ROUTE_LONG_WALK_THRESHOLD_METERS,
         ).count()
 
-        unresolved_queries = list(
+        unresolved_queries_queryset = (
             queryset.filter(has_result=False)
             .exclude(input_text__isnull=True)
             .values("input_text", "error_code")
             .annotate(count=Count("id"))
-            .order_by("-count")[:20]
+            .order_by("-count")
         )
+        total_rows = unresolved_queries_queryset.count()
+        unresolved_queries = list(unresolved_queries_queryset[offset : offset + limit])
 
         return Response(
-            {
-                "unresolved_reasons": unresolved,
-                "long_walk_count": long_walk,
-                "top_unresolved_queries": unresolved_queries,
-                "filters": self._serialize_filters(request),
-            },
+            self._with_meta(
+                {
+                    "unresolved_reasons": unresolved,
+                    "long_walk_count": long_walk,
+                    "top_unresolved_queries": unresolved_queries,
+                },
+                request,
+                pagination={
+                    "limit": limit,
+                    "offset": offset,
+                    "total_rows": total_rows,
+                },
+            ),
             status=status.HTTP_200_OK,
         )
 
@@ -424,28 +496,37 @@ class RouteAnalyticsQueryView(RouteAnalyticsBaseView):
                     "meta": serializers.DictField(),
                     "filters": serializers.DictField(),
                 },
-            )
+            ),
+            400: inline_serializer(
+                name="RouteAnalyticsQueryError",
+                fields={
+                    "error": serializers.DictField(),
+                },
+            ),
         },
     )
     def get(self, request):
         queryset = self._apply_filters(RouteHistory.objects.all(), request)
+        try:
+            options = RouteAnalyticsService.parse_query_options(request.query_params)
+        except RouteAnalyticsQueryValidationError as error:
+            return Response(
+                {
+                    "error": {
+                        "code": "INVALID_ANALYTICS_QUERY",
+                        "message": str(error),
+                        "details": error.details,
+                    }
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        metrics = RouteAnalyticsService.parse_metrics(
-            request.query_params.get("metrics")
-        )
-        group_by = RouteAnalyticsService.parse_group_by(
-            request.query_params.get("group_by")
-        )
-        limit, offset = RouteAnalyticsService.parse_pagination(
-            request.query_params.get("limit"),
-            request.query_params.get("offset"),
-        )
-        sort_by, order = RouteAnalyticsService.parse_sorting(
-            request.query_params.get("sort"),
-            request.query_params.get("order"),
-            group_by,
-            metrics,
-        )
+        metrics = options["metrics"]
+        group_by = options["group_by"]
+        limit = options["limit"]
+        offset = options["offset"]
+        sort_by = options["sort"]
+        order = options["order"]
 
         rows = RouteAnalyticsService.query_analytics(queryset, metrics, group_by)
         rows = RouteAnalyticsService.sort_rows(rows, sort_by, order)

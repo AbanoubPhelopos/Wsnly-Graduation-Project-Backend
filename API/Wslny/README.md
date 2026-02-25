@@ -72,6 +72,8 @@ Use `Bearer <jwt_token>` in Swagger Authorize to test protected endpoints.
 - Generic analytics endpoint: `GET /api/admin/analytics/routes/query`
 - Supports reusable filters (`source`, `status`, `filter`, `from_date`, `to_date`) and
   composable query options (`metrics`, `group_by`, `sort`, `order`, `limit`, `offset`).
+- Returns consistent metadata (`meta`) and validates invalid analytics query options
+  with `400 INVALID_ANALYTICS_QUERY` details.
 
 ## Routing Notes
 

@@ -56,6 +56,7 @@ Client -> Wslny API -> (optional) Ai-Service -> RoutingEngine -> Wslny API -> Cl
   - `GET /api/admin/analytics/routes/filters`
   - `GET /api/admin/analytics/routes/unresolved`
   - `GET /api/admin/analytics/routes/query`
+    - supports metrics/grouping/pagination with validation errors for bad query options
 - API docs:
   - `GET /api/schema/`
   - `GET /api/docs/`
