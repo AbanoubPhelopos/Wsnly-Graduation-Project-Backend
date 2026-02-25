@@ -42,7 +42,7 @@ Wslny API --> PostgreSQL (users, route history, analytics)
 ```json
 {
   "text": "عايز اروح العباسيه من مسكن",
-  "filter": "optimal"
+  "filter": 1
 }
 ```
 
@@ -53,7 +53,7 @@ Pipeline:
 3. AI returns names + lat/lon for destination and, when available, origin.
 4. If origin is missing, API can use `current_location` from client payload.
 5. Wslny calls RoutingEngine gRPC `RoutingService.GetRoute`.
-6. Wslny filters to a single route by `filter` (`optimal`, `fastest`, `cheapest`, `bus_only`, `microbus_only`, `metro_only`).
+6. Wslny filters to a single route by `filter` enum (`1=optimal`, `2=fastest`, `3=cheapest`, `4=bus_only`, `5=microbus_only`, `6=metro_only`).
 7. Wslny returns final JSON route response with one `route` object.
 8. Wslny stores route history + latency metrics.
 
@@ -65,7 +65,7 @@ Pipeline:
 {
   "origin": { "lat": 30.0539, "lon": 31.2383 },
   "destination": { "lat": 30.0735, "lon": 31.2823 },
-  "filter": "cheapest"
+  "filter": 3
 }
 ```
 

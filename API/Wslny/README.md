@@ -69,8 +69,9 @@ Use `Bearer <jwt_token>` in Swagger Authorize to test protected endpoints.
 
 ## Routing Notes
 
-- `POST /api/route` accepts `filter` (`optimal`, `fastest`, `cheapest`, `bus_only`, `microbus_only`, `metro_only`) for both text and map requests.
+- `POST /api/route` accepts `filter` enum for both text and map requests: `1=optimal`, `2=fastest`, `3=cheapest`, `4=bus_only`, `5=microbus_only`, `6=metro_only`.
 - Text requests may include `current_location` for destination-only phrases.
+- Text requests may also pass optional query params `current_latitude` and `current_longitude` (nullable) as fallback current location.
 - Response includes one `route` only (not a routes array).
 - Fare behavior:
   - metro: tiered by total metro stops

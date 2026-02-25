@@ -27,7 +27,7 @@ Client -> Wslny API -> (optional) Ai-Service -> RoutingEngine -> Wslny API -> Cl
 2. Call AI gRPC `ExtractRoute` to get destination and optional source coordinates.
 3. If source is missing, use `current_location` if provided.
 4. Call Routing gRPC `GetRoute` with coordinates.
-5. Filter to one route by `filter` (`optimal`, `fastest`, `cheapest`, `bus_only`, `microbus_only`, `metro_only`).
+5. Filter to one route by `filter` enum (`1=optimal`, `2=fastest`, `3=cheapest`, `4=bus_only`, `5=microbus_only`, `6=metro_only`).
 6. Return standardized JSON (`query`, `route`) and persist history.
 
 ### Map-pin input

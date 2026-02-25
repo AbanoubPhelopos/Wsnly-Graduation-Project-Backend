@@ -8,8 +8,9 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from drf_spectacular.utils import (
     OpenApiExample,
+    OpenApiParameter,
     OpenApiResponse,
-    PolymorphicProxySerializer,
+    OpenApiTypes,
     extend_schema,
 )
 from src.Infrastructure.History.models import RouteHistory
@@ -19,16 +20,27 @@ from src.Infrastructure.GrpcClients.routing_client import (
     RoutingGrpcClientError,
 )
 from src.Presentation.schemas import (
-    MapRouteRequestSerializer,
     RouteErrorResponseSerializer,
     RouteHistoryItemSerializer,
+    RouteRequestSerializer,
     RouteSuccessResponseSerializer,
-    TextRouteRequestSerializer,
 )
 
 
 class RouteOrchestratorView(APIView):
     permission_classes = [IsAuthenticated]
+    FILTER_ENUM_TO_PREFERENCE = {
+        1: RouteHistory.PREFERENCE_OPTIMAL,
+        2: RouteHistory.PREFERENCE_FASTEST,
+        3: RouteHistory.PREFERENCE_CHEAPEST,
+        4: RouteHistory.PREFERENCE_BUS_ONLY,
+        5: RouteHistory.PREFERENCE_MICROBUS_ONLY,
+        6: RouteHistory.PREFERENCE_METRO_ONLY,
+    }
+    FILTER_PREFERENCE_TO_ENUM = {
+        preference: enum_value
+        for enum_value, preference in FILTER_ENUM_TO_PREFERENCE.items()
+    }
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -71,36 +83,67 @@ class RouteOrchestratorView(APIView):
         return s_lat, s_lon, d_lat, d_lon
 
     @staticmethod
-    def _parse_current_location(data):
-        if "current_location" not in data:
+    def _parse_current_location(data, query_params=None):
+        def is_valid(lat, lon):
+            return -90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0
+
+        if "current_location" in data:
+            try:
+                current = data["current_location"]
+                lat = float(current["lat"])
+                lon = float(current["lon"])
+                if is_valid(lat, lon):
+                    return lat, lon
+            except (TypeError, KeyError, ValueError):
+                pass
+
+        if query_params is None:
+            return None
+
+        query_lat = query_params.get("current_latitude")
+        query_lon = query_params.get("current_longitude")
+        if query_lat in (None, "", "null") or query_lon in (None, "", "null"):
             return None
 
         try:
-            current = data["current_location"]
-            lat = float(current["lat"])
-            lon = float(current["lon"])
-        except (TypeError, KeyError, ValueError):
+            lat = float(query_lat)
+            lon = float(query_lon)
+        except (TypeError, ValueError):
             return None
 
-        if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+        if not is_valid(lat, lon):
             return None
 
         return lat, lon
 
     @staticmethod
     def _parse_filter(data):
-        route_filter = str(data.get("filter") or data.get("preference") or "optimal")
-        route_filter = route_filter.strip().lower()
-        if route_filter not in {
-            RouteHistory.PREFERENCE_OPTIMAL,
-            RouteHistory.PREFERENCE_FASTEST,
-            RouteHistory.PREFERENCE_CHEAPEST,
-            RouteHistory.PREFERENCE_BUS_ONLY,
-            RouteHistory.PREFERENCE_MICROBUS_ONLY,
-            RouteHistory.PREFERENCE_METRO_ONLY,
-        }:
+        raw_filter = data.get("filter", data.get("preference"))
+        if raw_filter in (None, ""):
             return RouteHistory.PREFERENCE_OPTIMAL
-        return route_filter
+
+        if isinstance(raw_filter, str):
+            normalized = raw_filter.strip().lower()
+            if normalized.isdigit():
+                raw_filter = int(normalized)
+            else:
+                if normalized in RouteOrchestratorView.FILTER_PREFERENCE_TO_ENUM:
+                    return normalized
+                return RouteHistory.PREFERENCE_OPTIMAL
+
+        try:
+            enum_value = int(raw_filter)
+        except (TypeError, ValueError):
+            return RouteHistory.PREFERENCE_OPTIMAL
+
+        return RouteOrchestratorView.FILTER_ENUM_TO_PREFERENCE.get(
+            enum_value,
+            RouteHistory.PREFERENCE_OPTIMAL,
+        )
+
+    @staticmethod
+    def _filter_to_enum(route_filter):
+        return RouteOrchestratorView.FILTER_PREFERENCE_TO_ENUM.get(route_filter, 1)
 
     @staticmethod
     def _metro_fare_by_stops(stops_count):
@@ -263,14 +306,19 @@ class RouteOrchestratorView(APIView):
             "request_id": request_id,
             "source": source,
             "intent": intent,
-            "filter": route_filter,
+            "filter": RouteOrchestratorView._filter_to_enum(route_filter),
             "from_name": from_data.get("name") if from_data else None,
             "to_name": to_data.get("name") if to_data else None,
         }
 
+        response_route = None
+        if selected_route:
+            response_route = dict(selected_route)
+            response_route["type"] = route_filter
+
         if "query" in route_result and "routes" in route_result:
             payload["query"] = route_result["query"]
-            payload["route"] = selected_route
+            payload["route"] = response_route
         else:
             payload["query"] = {
                 "origin": {
@@ -373,12 +421,30 @@ class RouteOrchestratorView(APIView):
     @extend_schema(
         tags=["Routing"],
         summary="Get route by text or map pins",
-        description="Send either natural language text or exact origin/destination coordinates.",
-        request=PolymorphicProxySerializer(
-            component_name="RouteRequest",
-            serializers=[TextRouteRequestSerializer, MapRouteRequestSerializer],
-            resource_type_field_name=None,
+        description=(
+            "Send either natural language text or exact origin/destination coordinates. "
+            "Filter enum values: 1=optimal, 2=fastest, 3=cheapest, "
+            "4=bus_only, 5=microbus_only, 6=metro_only. "
+            "Optional query params current_latitude/current_longitude can be used "
+            "when text input does not include source location."
         ),
+        request=RouteRequestSerializer,
+        parameters=[
+            OpenApiParameter(
+                name="current_latitude",
+                type=OpenApiTypes.FLOAT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Optional current latitude. Can be omitted/null/empty.",
+            ),
+            OpenApiParameter(
+                name="current_longitude",
+                type=OpenApiTypes.FLOAT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Optional current longitude. Can be omitted/null/empty.",
+            ),
+        ],
         responses={
             200: RouteSuccessResponseSerializer,
             400: OpenApiResponse(response=RouteErrorResponseSerializer),
@@ -391,7 +457,7 @@ class RouteOrchestratorView(APIView):
         examples=[
             OpenApiExample(
                 "Text Request",
-                value={"text": "عايز اروح العباسيه من مسكن"},
+                value={"text": "عايز اروح العباسيه من مسكن", "filter": 1},
                 request_only=True,
             ),
             OpenApiExample(
@@ -399,6 +465,7 @@ class RouteOrchestratorView(APIView):
                 value={
                     "origin": {"lat": 30.0539, "lon": 31.2383},
                     "destination": {"lat": 30.0735, "lon": 31.2823},
+                    "filter": 3,
                 },
                 request_only=True,
             ),
@@ -479,7 +546,7 @@ class RouteOrchestratorView(APIView):
             isinstance(data.get("text"), str) and data.get("text", "").strip() != ""
         )
         has_coordinates = "origin" in data and "destination" in data
-        current_location = self._parse_current_location(data)
+        current_location = self._parse_current_location(data, request.query_params)
 
         if has_text and has_coordinates:
             total_latency_ms = (time.perf_counter() - request_start) * 1000.0

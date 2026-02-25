@@ -1,23 +1,45 @@
 from rest_framework import serializers
 
 
+ROUTE_FILTER_ENUM_CHOICES = [
+    (1, "optimal"),
+    (2, "fastest"),
+    (3, "cheapest"),
+    (4, "bus_only"),
+    (5, "microbus_only"),
+    (6, "metro_only"),
+]
+ROUTE_FILTER_HELP_TEXT = (
+    "Route filter enum: 1=optimal, 2=fastest, 3=cheapest, "
+    "4=bus_only, 5=microbus_only, 6=metro_only"
+)
+
+
 class CoordinateSerializer(serializers.Serializer):
     lat = serializers.FloatField()
     lon = serializers.FloatField()
 
 
+class RouteRequestSerializer(serializers.Serializer):
+    text = serializers.CharField(required=False)
+    origin = CoordinateSerializer(required=False)
+    destination = CoordinateSerializer(required=False)
+    current_location = CoordinateSerializer(required=False, allow_null=True)
+    filter = serializers.ChoiceField(
+        choices=ROUTE_FILTER_ENUM_CHOICES,
+        required=False,
+        default=1,
+        help_text=ROUTE_FILTER_HELP_TEXT,
+    )
+
+
 class TextRouteRequestSerializer(serializers.Serializer):
     text = serializers.CharField()
     filter = serializers.ChoiceField(
-        choices=[
-            "optimal",
-            "fastest",
-            "cheapest",
-            "bus_only",
-            "microbus_only",
-            "metro_only",
-        ],
+        choices=ROUTE_FILTER_ENUM_CHOICES,
         required=False,
+        default=1,
+        help_text=ROUTE_FILTER_HELP_TEXT,
     )
     current_location = CoordinateSerializer(required=False, allow_null=True)
 
@@ -26,15 +48,10 @@ class MapRouteRequestSerializer(serializers.Serializer):
     origin = CoordinateSerializer()
     destination = CoordinateSerializer()
     filter = serializers.ChoiceField(
-        choices=[
-            "optimal",
-            "fastest",
-            "cheapest",
-            "bus_only",
-            "microbus_only",
-            "metro_only",
-        ],
+        choices=ROUTE_FILTER_ENUM_CHOICES,
         required=False,
+        default=1,
+        help_text=ROUTE_FILTER_HELP_TEXT,
     )
 
 
@@ -96,7 +113,13 @@ class RouteOptionSegmentSerializer(serializers.Serializer):
 
 
 class RouteOptionSerializer(serializers.Serializer):
-    type = serializers.CharField()
+    type = serializers.CharField(
+        help_text=(
+            "Selected route label. For filtered responses, this matches the "
+            "requested filter name (optimal, fastest, cheapest, bus_only, "
+            "microbus_only, metro_only)."
+        )
+    )
     found = serializers.BooleanField()
     totalDurationSeconds = serializers.IntegerField()
     totalDurationFormatted = serializers.CharField()
@@ -112,14 +135,8 @@ class RouteSuccessResponseSerializer(serializers.Serializer):
     source = serializers.ChoiceField(choices=["text", "map"])
     intent = serializers.CharField()
     filter = serializers.ChoiceField(
-        choices=[
-            "optimal",
-            "fastest",
-            "cheapest",
-            "bus_only",
-            "microbus_only",
-            "metro_only",
-        ]
+        choices=ROUTE_FILTER_ENUM_CHOICES,
+        help_text=ROUTE_FILTER_HELP_TEXT,
     )
     from_name = serializers.CharField(allow_null=True, required=False)
     to_name = serializers.CharField(allow_null=True, required=False)
