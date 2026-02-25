@@ -20,8 +20,8 @@ RUN mkdir -p /app/src/Infrastructure/GrpcClients/stubs \
     && touch /app/src/Infrastructure/GrpcClients/stubs/__init__.py \
     && python -m grpc_tools.protoc -I./protos --python_out=./src/Infrastructure/GrpcClients/stubs --grpc_python_out=./src/Infrastructure/GrpcClients/stubs ./protos/interpreter.proto ./protos/routing.proto
 
-# Make entrypoint executable
-RUN chmod +x /app/entrypoint.sh
+# Make entrypoint executable and fix CRLF
+RUN sed -i 's/\r$//' /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 # Expose port (adjust if needed)
 EXPOSE 8000

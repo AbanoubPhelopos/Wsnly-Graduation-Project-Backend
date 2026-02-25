@@ -25,6 +25,7 @@ RUN python -m grpc_tools.protoc -I./protos --python_out=./protos --grpc_python_o
 
 # Set PYTHONPATH to include current directory
 ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
 
 EXPOSE 50052
 
