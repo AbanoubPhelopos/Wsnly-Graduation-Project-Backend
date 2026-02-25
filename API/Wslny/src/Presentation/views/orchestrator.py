@@ -22,8 +22,7 @@ from src.Presentation.schemas import (
     MapRouteRequestSerializer,
     RouteErrorResponseSerializer,
     RouteHistoryItemSerializer,
-    RouteMultiSuccessResponseSerializer,
-    RouteSelectionRequestSerializer,
+    RouteSuccessResponseSerializer,
     TextRouteRequestSerializer,
 )
 
@@ -89,15 +88,19 @@ class RouteOrchestratorView(APIView):
         return lat, lon
 
     @staticmethod
-    def _parse_preference(data):
-        preference = str(data.get("preference", "optimal")).strip().lower()
-        if preference not in {
+    def _parse_filter(data):
+        route_filter = str(data.get("filter") or data.get("preference") or "optimal")
+        route_filter = route_filter.strip().lower()
+        if route_filter not in {
             RouteHistory.PREFERENCE_OPTIMAL,
             RouteHistory.PREFERENCE_FASTEST,
             RouteHistory.PREFERENCE_CHEAPEST,
+            RouteHistory.PREFERENCE_BUS_ONLY,
+            RouteHistory.PREFERENCE_MICROBUS_ONLY,
+            RouteHistory.PREFERENCE_METRO_ONLY,
         }:
             return RouteHistory.PREFERENCE_OPTIMAL
-        return preference
+        return route_filter
 
     @staticmethod
     def _metro_fare_by_stops(stops_count):
@@ -109,10 +112,10 @@ class RouteOrchestratorView(APIView):
     @staticmethod
     def _compute_route_cost(route_option):
         metro_stops = 0
-        bus_used = False
-        microbus_used = False
-        paid_segments = 0
+        bus_rides = 0
+        microbus_rides = 0
         walk_distance = 0.0
+        transport_segments = 0
 
         for segment in route_option.get("segments", []):
             method = (segment.get("method") or "").lower()
@@ -120,66 +123,89 @@ class RouteOrchestratorView(APIView):
                 walk_distance += float(segment.get("distanceMeters", 0) or 0)
                 continue
 
-            paid_segments += 1
+            transport_segments += 1
 
             if method == "metro":
                 metro_stops += int(segment.get("numStops", 0) or 0)
             elif method == "bus":
-                bus_used = True
+                bus_rides += 1
             elif method == "microbus":
-                microbus_used = True
+                microbus_rides += 1
 
-        if microbus_used:
-            estimated_fare = None
-        else:
-            estimated_fare = 0.0
-            if metro_stops > 0:
-                estimated_fare += RouteOrchestratorView._metro_fare_by_stops(
-                    metro_stops
-                )
-            if bus_used:
-                estimated_fare += settings.ROUTE_BUS_FIXED_FARE
-            if paid_segments > 1:
-                estimated_fare += (paid_segments - 1) * settings.ROUTE_TRANSFER_PENALTY
+        estimated_fare = 0.0
+        if metro_stops > 0:
+            estimated_fare += RouteOrchestratorView._metro_fare_by_stops(metro_stops)
+        if bus_rides > 0:
+            estimated_fare += bus_rides * settings.ROUTE_BUS_FARE_PER_RIDE
+        if microbus_rides > 0:
+            estimated_fare += microbus_rides * settings.ROUTE_MICROBUS_FARE_PER_RIDE
 
         route_option["estimatedFare"] = estimated_fare
         route_option["walkDistanceMeters"] = walk_distance
+        route_option["transportSegments"] = transport_segments
 
     @staticmethod
-    def _order_routes(route_result, preference):
+    def _select_route(route_result, route_filter):
         if "routes" not in route_result:
             return route_result, None
 
         routes = list(route_result.get("routes", []))
         for option in routes:
             RouteOrchestratorView._compute_route_cost(option)
+        found_routes = [option for option in routes if option.get("found")]
+        if not found_routes:
+            ordered_result = dict(route_result)
+            ordered_result["routes"] = routes
+            return ordered_result, None
 
         def duration_key(option):
-            if not option.get("found"):
-                return 10**9
             return int(option.get("totalDurationSeconds", 10**9) or 10**9)
 
         def cheapest_key(option):
-            if not option.get("found"):
-                return (2, 10**9, duration_key(option))
             fare = option.get("estimatedFare")
-            if fare is None:
-                return (1, 10**9, duration_key(option))
-            return (0, float(fare), duration_key(option))
+            return float(fare if fare is not None else 10**9), duration_key(option)
 
-        if preference == RouteHistory.PREFERENCE_FASTEST:
-            routes.sort(key=duration_key)
-        elif preference == RouteHistory.PREFERENCE_CHEAPEST:
-            routes.sort(key=cheapest_key)
-        else:
-            routes.sort(
-                key=lambda option: (
-                    0 if option.get("type") == "optimal" else 1,
-                    duration_key(option),
-                )
+        if route_filter == RouteHistory.PREFERENCE_FASTEST:
+            selected = min(found_routes, key=duration_key)
+        elif route_filter == RouteHistory.PREFERENCE_CHEAPEST:
+            selected = min(found_routes, key=cheapest_key)
+        elif route_filter == RouteHistory.PREFERENCE_BUS_ONLY:
+            selected = next(
+                (
+                    option
+                    for option in found_routes
+                    if option.get("type") == RouteHistory.PREFERENCE_BUS_ONLY
+                ),
+                None,
             )
-
-        selected = next((option for option in routes if option.get("found")), None)
+        elif route_filter == RouteHistory.PREFERENCE_MICROBUS_ONLY:
+            selected = next(
+                (
+                    option
+                    for option in found_routes
+                    if option.get("type") == RouteHistory.PREFERENCE_MICROBUS_ONLY
+                ),
+                None,
+            )
+        elif route_filter == RouteHistory.PREFERENCE_METRO_ONLY:
+            selected = next(
+                (
+                    option
+                    for option in found_routes
+                    if option.get("type") == RouteHistory.PREFERENCE_METRO_ONLY
+                ),
+                None,
+            )
+        elif route_filter == RouteHistory.PREFERENCE_OPTIMAL:
+            selected = min(
+                found_routes,
+                key=lambda option: (
+                    int(option.get("transportSegments", 10**9) or 10**9),
+                    duration_key(option),
+                ),
+            )
+        else:
+            selected = None
 
         ordered_result = dict(route_result)
         ordered_result["routes"] = routes
@@ -230,22 +256,21 @@ class RouteOrchestratorView(APIView):
         from_data,
         to_data,
         intent,
-        preference,
+        route_filter,
         selected_route,
     ):
         payload = {
             "request_id": request_id,
             "source": source,
             "intent": intent,
-            "preference": preference,
+            "filter": route_filter,
             "from_name": from_data.get("name") if from_data else None,
             "to_name": to_data.get("name") if to_data else None,
         }
 
         if "query" in route_result and "routes" in route_result:
             payload["query"] = route_result["query"]
-            payload["routes"] = route_result["routes"]
-            payload["selected_route"] = selected_route
+            payload["route"] = selected_route
         else:
             payload["query"] = {
                 "origin": {
@@ -257,22 +282,17 @@ class RouteOrchestratorView(APIView):
                     "lon": to_data.get("lon") if to_data else None,
                 },
             }
-            payload["routes"] = [
-                {
-                    "type": "optimal",
-                    "found": True,
-                    "totalDurationSeconds": int(
-                        route_result.get("total_duration_seconds", 0)
-                    ),
-                    "totalDurationFormatted": "",
-                    "totalSegments": len(route_result.get("steps", [])),
-                    "totalDistanceMeters": route_result.get(
-                        "total_distance_meters", 0.0
-                    ),
-                    "segments": [],
-                }
-            ]
-            payload["selected_route"] = payload["routes"][0]
+            payload["route"] = {
+                "type": "optimal",
+                "found": True,
+                "totalDurationSeconds": int(
+                    route_result.get("total_duration_seconds", 0)
+                ),
+                "totalDurationFormatted": "",
+                "totalSegments": len(route_result.get("steps", [])),
+                "totalDistanceMeters": route_result.get("total_distance_meters", 0.0),
+                "segments": [],
+            }
 
         return Response(
             payload,
@@ -280,34 +300,16 @@ class RouteOrchestratorView(APIView):
         )
 
     @staticmethod
-    def _extract_history_summary(route_result):
-        if not route_result:
+    def _extract_history_summary(selected_route):
+        if not selected_route:
             return None, None, None, None, None, False
-
-        if "routes" in route_result:
-            target = next(
-                (item for item in route_result.get("routes", []) if item.get("found")),
-                None,
-            )
-
-            if target:
-                return (
-                    target.get("totalDistanceMeters"),
-                    target.get("totalDurationSeconds"),
-                    target.get("totalSegments"),
-                    target.get("estimatedFare"),
-                    target.get("walkDistanceMeters"),
-                    bool(target.get("found")),
-                )
-            return None, None, None, None, None, False
-
         return (
-            route_result.get("total_distance_meters"),
-            route_result.get("total_duration_seconds"),
-            len(route_result.get("steps", [])),
-            None,
-            None,
-            True,
+            selected_route.get("totalDistanceMeters"),
+            selected_route.get("totalDurationSeconds"),
+            selected_route.get("totalSegments"),
+            selected_route.get("estimatedFare"),
+            selected_route.get("walkDistanceMeters"),
+            bool(selected_route.get("found")),
         )
 
     def _record_history(
@@ -327,6 +329,7 @@ class RouteOrchestratorView(APIView):
         request_id=None,
         preference=RouteHistory.PREFERENCE_OPTIMAL,
         selected_route_type=None,
+        selected_route=None,
         unresolved_reason=None,
     ):
         user = request.user if request.user.is_authenticated else None
@@ -337,7 +340,7 @@ class RouteOrchestratorView(APIView):
             estimated_fare,
             walk_distance,
             has_result,
-        ) = self._extract_history_summary(route_result)
+        ) = self._extract_history_summary(selected_route)
 
         RouteHistory.objects.create(
             user=user,
@@ -377,7 +380,7 @@ class RouteOrchestratorView(APIView):
             resource_type_field_name=None,
         ),
         responses={
-            200: RouteMultiSuccessResponseSerializer,
+            200: RouteSuccessResponseSerializer,
             400: OpenApiResponse(response=RouteErrorResponseSerializer),
             401: OpenApiResponse(response=RouteErrorResponseSerializer),
             404: OpenApiResponse(response=RouteErrorResponseSerializer),
@@ -470,7 +473,7 @@ class RouteOrchestratorView(APIView):
             )
 
         data = request.data
-        preference = self._parse_preference(data)
+        route_filter = self._parse_filter(data)
 
         has_text = (
             isinstance(data.get("text"), str) and data.get("text", "").strip() != ""
@@ -485,7 +488,7 @@ class RouteOrchestratorView(APIView):
                 request_id=request_id,
                 source_type=RouteHistory.SOURCE_TEXT,
                 input_text=data.get("text"),
-                preference=preference,
+                preference=route_filter,
                 from_data=None,
                 to_data=None,
                 route_result=None,
@@ -515,7 +518,7 @@ class RouteOrchestratorView(APIView):
                     request_id=request_id,
                     source_type=source_type,
                     input_text=None,
-                    preference=preference,
+                    preference=route_filter,
                     from_data=None,
                     to_data=None,
                     route_result=None,
@@ -551,7 +554,7 @@ class RouteOrchestratorView(APIView):
                     request_id=request_id,
                     source_type=source_type,
                     input_text=None,
-                    preference=preference,
+                    preference=route_filter,
                     from_data=from_data,
                     to_data=to_data,
                     route_result=None,
@@ -568,7 +571,37 @@ class RouteOrchestratorView(APIView):
                     request_id, http_status, error_code, error.details
                 )
 
-            route_result, selected_route = self._order_routes(route_result, preference)
+            route_result, selected_route = self._select_route(
+                route_result, route_filter
+            )
+            if selected_route is None:
+                routing_latency_ms = (time.perf_counter() - routing_start) * 1000.0
+                total_latency_ms = (time.perf_counter() - request_start) * 1000.0
+                self._record_history(
+                    request=request,
+                    request_id=request_id,
+                    source_type=source_type,
+                    input_text=None,
+                    preference=route_filter,
+                    from_data=from_data,
+                    to_data=to_data,
+                    route_result=route_result,
+                    status_value=RouteHistory.STATUS_FAILED,
+                    error_code="ROUTING_NO_MATCHING_FILTER",
+                    error_message=f"No route found for filter '{route_filter}'.",
+                    selected_route_type=None,
+                    selected_route=None,
+                    unresolved_reason="routing_no_matching_filter",
+                    ai_latency_ms=None,
+                    routing_latency_ms=routing_latency_ms,
+                    total_latency_ms=total_latency_ms,
+                )
+                return self._error_response(
+                    request_id,
+                    status.HTTP_404_NOT_FOUND,
+                    "ROUTING_NO_MATCHING_FILTER",
+                    f"No route found for filter '{route_filter}'.",
+                )
             routing_latency_ms = (time.perf_counter() - routing_start) * 1000.0
             total_latency_ms = (time.perf_counter() - request_start) * 1000.0
 
@@ -577,7 +610,7 @@ class RouteOrchestratorView(APIView):
                 request_id=request_id,
                 source_type=source_type,
                 input_text=None,
-                preference=preference,
+                preference=route_filter,
                 from_data=from_data,
                 to_data=to_data,
                 route_result=route_result,
@@ -585,6 +618,7 @@ class RouteOrchestratorView(APIView):
                 error_code=None,
                 error_message=None,
                 selected_route_type=(selected_route or {}).get("type"),
+                selected_route=selected_route,
                 unresolved_reason=None,
                 ai_latency_ms=None,
                 routing_latency_ms=routing_latency_ms,
@@ -598,7 +632,7 @@ class RouteOrchestratorView(APIView):
                 from_data=from_data,
                 to_data=to_data,
                 intent="direct_coordinates",
-                preference=preference,
+                route_filter=route_filter,
                 selected_route=selected_route,
             )
 
@@ -617,7 +651,7 @@ class RouteOrchestratorView(APIView):
                     request_id=request_id,
                     source_type=source_type,
                     input_text=text_query,
-                    preference=preference,
+                    preference=route_filter,
                     from_data=None,
                     to_data=None,
                     route_result=None,
@@ -642,7 +676,7 @@ class RouteOrchestratorView(APIView):
                     request_id=request_id,
                     source_type=source_type,
                     input_text=text_query,
-                    preference=preference,
+                    preference=route_filter,
                     from_data=None,
                     to_data=None,
                     route_result=None,
@@ -676,7 +710,7 @@ class RouteOrchestratorView(APIView):
                     request_id=request_id,
                     source_type=source_type,
                     input_text=text_query,
-                    preference=preference,
+                    preference=route_filter,
                     from_data=None,
                     to_data=None,
                     route_result=None,
@@ -724,7 +758,7 @@ class RouteOrchestratorView(APIView):
                     request_id=request_id,
                     source_type=source_type,
                     input_text=text_query,
-                    preference=preference,
+                    preference=route_filter,
                     from_data=from_data,
                     to_data=to_data,
                     route_result=None,
@@ -741,7 +775,37 @@ class RouteOrchestratorView(APIView):
                     request_id, http_status, error_code, error.details
                 )
 
-            route_result, selected_route = self._order_routes(route_result, preference)
+            route_result, selected_route = self._select_route(
+                route_result, route_filter
+            )
+            if selected_route is None:
+                routing_latency_ms = (time.perf_counter() - routing_start) * 1000.0
+                total_latency_ms = (time.perf_counter() - request_start) * 1000.0
+                self._record_history(
+                    request=request,
+                    request_id=request_id,
+                    source_type=source_type,
+                    input_text=text_query,
+                    preference=route_filter,
+                    from_data=from_data,
+                    to_data=to_data,
+                    route_result=route_result,
+                    status_value=RouteHistory.STATUS_FAILED,
+                    error_code="ROUTING_NO_MATCHING_FILTER",
+                    error_message=f"No route found for filter '{route_filter}'.",
+                    selected_route_type=None,
+                    selected_route=None,
+                    unresolved_reason="routing_no_matching_filter",
+                    ai_latency_ms=ai_latency_ms,
+                    routing_latency_ms=routing_latency_ms,
+                    total_latency_ms=total_latency_ms,
+                )
+                return self._error_response(
+                    request_id,
+                    status.HTTP_404_NOT_FOUND,
+                    "ROUTING_NO_MATCHING_FILTER",
+                    f"No route found for filter '{route_filter}'.",
+                )
             routing_latency_ms = (time.perf_counter() - routing_start) * 1000.0
             total_latency_ms = (time.perf_counter() - request_start) * 1000.0
             self._record_history(
@@ -749,7 +813,7 @@ class RouteOrchestratorView(APIView):
                 request_id=request_id,
                 source_type=source_type,
                 input_text=text_query,
-                preference=preference,
+                preference=route_filter,
                 from_data=from_data,
                 to_data=to_data,
                 route_result=route_result,
@@ -757,6 +821,7 @@ class RouteOrchestratorView(APIView):
                 error_code=None,
                 error_message=None,
                 selected_route_type=(selected_route or {}).get("type"),
+                selected_route=selected_route,
                 unresolved_reason=None,
                 ai_latency_ms=ai_latency_ms,
                 routing_latency_ms=routing_latency_ms,
@@ -770,7 +835,7 @@ class RouteOrchestratorView(APIView):
                 from_data=from_data,
                 to_data=to_data,
                 intent=ai_result.get("intent", "unknown"),
-                preference=preference,
+                route_filter=route_filter,
                 selected_route=selected_route,
             )
 
@@ -780,7 +845,7 @@ class RouteOrchestratorView(APIView):
             request_id=request_id,
             source_type=RouteHistory.SOURCE_TEXT,
             input_text=data.get("text"),
-            preference=preference,
+            preference=route_filter,
             from_data=None,
             to_data=None,
             route_result=None,
@@ -824,7 +889,7 @@ class RouteHistoryView(APIView):
                 "request_id": item.request_id,
                 "source_type": item.source_type,
                 "input_text": item.input_text,
-                "preference": item.preference,
+                "filter": item.preference,
                 "selected_route_type": item.selected_route_type,
                 "origin_name": item.origin_name,
                 "destination_name": item.destination_name,
@@ -839,40 +904,3 @@ class RouteHistoryView(APIView):
             for item in entries
         ]
         return Response(payload, status=status.HTTP_200_OK)
-
-
-class RouteSelectionView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    @extend_schema(
-        tags=["Routing"],
-        summary="Store selected route type for analytics",
-        request=RouteSelectionRequestSerializer,
-        responses={200: OpenApiResponse(description="Selection saved")},
-    )
-    def post(self, request):
-        request_id = request.data.get("request_id")
-        selected_type = request.data.get("selected_type")
-
-        if not request_id or not selected_type:
-            return Response(
-                {"error": "request_id and selected_type are required."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        history = (
-            RouteHistory.objects.filter(user=request.user, request_id=request_id)
-            .order_by("-created_at")
-            .first()
-        )
-
-        if history is None:
-            return Response(
-                {"error": "Route history record not found for this request_id."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        history.selected_route_type = str(selected_type)
-        history.save(update_fields=["selected_route_type"])
-
-        return Response({"message": "Selection stored."}, status=status.HTTP_200_OK)

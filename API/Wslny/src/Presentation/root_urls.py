@@ -12,13 +12,13 @@ from src.Presentation.views.auth_views import (
 from src.Presentation.views.admin_views import (
     ChangeUserRoleView,
     RouteAnalyticsOverviewView,
-    RouteSelectionStatsView,
+    RouteFilterStatsView,
     RouteAnalyticsTopRoutesView,
     RouteUnresolvedStatsView,
     UserListView,
 )
 from src.Presentation.views.orchestrator import RouteOrchestratorView
-from src.Presentation.views.orchestrator import RouteHistoryView, RouteSelectionView
+from src.Presentation.views.orchestrator import RouteHistoryView
 
 
 urlpatterns = [
@@ -43,9 +43,9 @@ urlpatterns = [
         name="routes-analytics-top-routes",
     ),
     path(
-        "api/admin/analytics/routes/selections",
-        RouteSelectionStatsView.as_view(),
-        name="routes-analytics-selections",
+        "api/admin/analytics/routes/filters",
+        RouteFilterStatsView.as_view(),
+        name="routes-analytics-filters",
     ),
     path(
         "api/admin/analytics/routes/unresolved",
@@ -54,7 +54,6 @@ urlpatterns = [
     ),
     path("api/route", RouteOrchestratorView.as_view(), name="route-orchestrator"),
     path("api/route/history", RouteHistoryView.as_view(), name="route-history"),
-    path("api/route/selection", RouteSelectionView.as_view(), name="route-selection"),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path(
         "api/docs/",

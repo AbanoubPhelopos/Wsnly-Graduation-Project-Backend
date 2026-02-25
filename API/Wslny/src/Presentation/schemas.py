@@ -8,8 +8,16 @@ class CoordinateSerializer(serializers.Serializer):
 
 class TextRouteRequestSerializer(serializers.Serializer):
     text = serializers.CharField()
-    preference = serializers.ChoiceField(
-        choices=["optimal", "fastest", "cheapest"], required=False
+    filter = serializers.ChoiceField(
+        choices=[
+            "optimal",
+            "fastest",
+            "cheapest",
+            "bus_only",
+            "microbus_only",
+            "metro_only",
+        ],
+        required=False,
     )
     current_location = CoordinateSerializer(required=False, allow_null=True)
 
@@ -17,8 +25,16 @@ class TextRouteRequestSerializer(serializers.Serializer):
 class MapRouteRequestSerializer(serializers.Serializer):
     origin = CoordinateSerializer()
     destination = CoordinateSerializer()
-    preference = serializers.ChoiceField(
-        choices=["optimal", "fastest", "cheapest"], required=False
+    filter = serializers.ChoiceField(
+        choices=[
+            "optimal",
+            "fastest",
+            "cheapest",
+            "bus_only",
+            "microbus_only",
+            "metro_only",
+        ],
+        required=False,
     )
 
 
@@ -91,16 +107,24 @@ class RouteOptionSerializer(serializers.Serializer):
     walkDistanceMeters = serializers.FloatField(required=False, allow_null=True)
 
 
-class RouteMultiSuccessResponseSerializer(serializers.Serializer):
+class RouteSuccessResponseSerializer(serializers.Serializer):
     request_id = serializers.UUIDField()
     source = serializers.ChoiceField(choices=["text", "map"])
     intent = serializers.CharField()
-    preference = serializers.ChoiceField(choices=["optimal", "fastest", "cheapest"])
+    filter = serializers.ChoiceField(
+        choices=[
+            "optimal",
+            "fastest",
+            "cheapest",
+            "bus_only",
+            "microbus_only",
+            "metro_only",
+        ]
+    )
     from_name = serializers.CharField(allow_null=True, required=False)
     to_name = serializers.CharField(allow_null=True, required=False)
     query = RouteQuerySerializer()
-    routes = RouteOptionSerializer(many=True)
-    selected_route = RouteOptionSerializer(required=False, allow_null=True)
+    route = RouteOptionSerializer(required=False, allow_null=True)
 
 
 class ErrorBodySerializer(serializers.Serializer):
@@ -167,16 +191,11 @@ class UserSummarySerializer(serializers.Serializer):
     role = serializers.CharField(required=False)
 
 
-class RouteSelectionRequestSerializer(serializers.Serializer):
-    request_id = serializers.CharField()
-    selected_type = serializers.CharField()
-
-
 class RouteHistoryItemSerializer(serializers.Serializer):
     request_id = serializers.CharField(allow_null=True)
     source_type = serializers.CharField()
     input_text = serializers.CharField(allow_null=True)
-    preference = serializers.CharField()
+    filter = serializers.CharField(source="preference")
     selected_route_type = serializers.CharField(allow_null=True)
     origin_name = serializers.CharField(allow_null=True)
     destination_name = serializers.CharField(allow_null=True)

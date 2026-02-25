@@ -8,8 +8,8 @@ This folder contains the runnable Django service for Wslny API.
 - gRPC clients for `Ai-Service` and `RoutingEngine`.
 - Route orchestration logic for text and map modes.
 - Route history persistence for analytics.
-- Route preference ranking and fare estimation.
-- User route history and selected-route tracking endpoints.
+- Route filter selection and fare estimation.
+- User route history endpoint.
 - OpenAPI/Swagger documentation.
 
 ## Communication Design
@@ -69,10 +69,10 @@ Use `Bearer <jwt_token>` in Swagger Authorize to test protected endpoints.
 
 ## Routing Notes
 
-- `POST /api/route` accepts `preference` (`optimal`, `fastest`, `cheapest`) for both text and map requests.
+- `POST /api/route` accepts `filter` (`optimal`, `fastest`, `cheapest`, `bus_only`, `microbus_only`, `metro_only`) for both text and map requests.
 - Text requests may include `current_location` for destination-only phrases.
-- Response includes `routes[]` plus `selected_route`.
+- Response includes one `route` only (not a routes array).
 - Fare behavior:
-  - metro: tiered by number of metro stops
-  - bus: fixed fare
-  - microbus: `null` (not priced yet)
+  - metro: tiered by total metro stops
+  - bus: `20 EGP` per bus ride segment
+  - microbus: `10 EGP` per microbus ride segment

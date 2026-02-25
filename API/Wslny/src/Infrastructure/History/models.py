@@ -20,10 +20,16 @@ class RouteHistory(models.Model):
     PREFERENCE_OPTIMAL = "optimal"
     PREFERENCE_FASTEST = "fastest"
     PREFERENCE_CHEAPEST = "cheapest"
+    PREFERENCE_BUS_ONLY = "bus_only"
+    PREFERENCE_MICROBUS_ONLY = "microbus_only"
+    PREFERENCE_METRO_ONLY = "metro_only"
     PREFERENCE_CHOICES = (
         (PREFERENCE_OPTIMAL, "Optimal"),
         (PREFERENCE_FASTEST, "Fastest"),
         (PREFERENCE_CHEAPEST, "Cheapest"),
+        (PREFERENCE_BUS_ONLY, "Bus Only"),
+        (PREFERENCE_MICROBUS_ONLY, "Microbus Only"),
+        (PREFERENCE_METRO_ONLY, "Metro Only"),
     )
 
     user = models.ForeignKey(

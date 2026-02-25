@@ -42,7 +42,7 @@ Wslny API --> PostgreSQL (users, route history, analytics)
 ```json
 {
   "text": "عايز اروح العباسيه من مسكن",
-  "preference": "optimal"
+  "filter": "optimal"
 }
 ```
 
@@ -53,8 +53,8 @@ Pipeline:
 3. AI returns names + lat/lon for destination and, when available, origin.
 4. If origin is missing, API can use `current_location` from client payload.
 5. Wslny calls RoutingEngine gRPC `RoutingService.GetRoute`.
-6. Wslny ranks route options by `preference` (`optimal`, `fastest`, `cheapest`).
-7. Wslny returns final JSON route response with `routes[]` and `selected_route`.
+6. Wslny filters to a single route by `filter` (`optimal`, `fastest`, `cheapest`, `bus_only`, `microbus_only`, `metro_only`).
+7. Wslny returns final JSON route response with one `route` object.
 8. Wslny stores route history + latency metrics.
 
 ### 2) Map-Pin Flow
@@ -65,7 +65,7 @@ Pipeline:
 {
   "origin": { "lat": 30.0539, "lon": 31.2383 },
   "destination": { "lat": 30.0735, "lon": 31.2823 },
-  "preference": "cheapest"
+  "filter": "cheapest"
 }
 ```
 
@@ -74,7 +74,7 @@ Pipeline:
 1. Wslny validates JWT and coordinates.
 2. Wslny bypasses AI.
 3. Wslny calls RoutingEngine directly.
-4. Wslny ranks route options by `preference`.
+4. Wslny filters to one route by `filter`.
 5. Wslny returns final JSON route response.
 6. Wslny stores route history + latency metrics.
 
@@ -83,11 +83,10 @@ Pipeline:
 - Auth: `/api/auth/register`, `/api/auth/login`, `/api/auth/google-login`, `/api/auth/profile`
 - Routing: `/api/route`
 - Route history: `/api/route/history`
-- Route selection tracking: `/api/route/selection`
 - Admin analytics:
   - `/api/admin/analytics/routes/overview`
   - `/api/admin/analytics/routes/top-routes`
-  - `/api/admin/analytics/routes/selections`
+  - `/api/admin/analytics/routes/filters`
   - `/api/admin/analytics/routes/unresolved`
 - OpenAPI:
   - `/api/schema/`

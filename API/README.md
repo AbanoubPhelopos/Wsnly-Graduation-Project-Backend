@@ -27,15 +27,15 @@ Client -> Wslny API -> (optional) Ai-Service -> RoutingEngine -> Wslny API -> Cl
 2. Call AI gRPC `ExtractRoute` to get destination and optional source coordinates.
 3. If source is missing, use `current_location` if provided.
 4. Call Routing gRPC `GetRoute` with coordinates.
-5. Rank route options by `preference` (`optimal`, `fastest`, `cheapest`).
-6. Return standardized JSON (`query`, `routes[]`, `selected_route`) and persist history.
+5. Filter to one route by `filter` (`optimal`, `fastest`, `cheapest`, `bus_only`, `microbus_only`, `metro_only`).
+6. Return standardized JSON (`query`, `route`) and persist history.
 
 ### Map-pin input
 
 1. Receive `POST /api/route` with coordinates.
 2. Skip AI service.
 3. Call Routing gRPC directly.
-4. Rank route options by `preference`.
+4. Filter to one route by `filter`.
 5. Return standardized JSON and persist history.
 
 ## Important Endpoints
@@ -48,13 +48,12 @@ Client -> Wslny API -> (optional) Ai-Service -> RoutingEngine -> Wslny API -> Cl
 - Routing:
   - `POST /api/route` (JWT required)
   - `GET /api/route/history` (JWT required)
-  - `POST /api/route/selection` (JWT required)
 - Admin:
   - `POST /api/admin/change-role`
   - `GET /api/admin/users`
   - `GET /api/admin/analytics/routes/overview`
   - `GET /api/admin/analytics/routes/top-routes`
-  - `GET /api/admin/analytics/routes/selections`
+  - `GET /api/admin/analytics/routes/filters`
   - `GET /api/admin/analytics/routes/unresolved`
 - API docs:
   - `GET /api/schema/`
@@ -66,7 +65,7 @@ Client -> Wslny API -> (optional) Ai-Service -> RoutingEngine -> Wslny API -> Cl
 - Prevents AI-to-Routing service chaining anti-pattern.
 - Allows efficient bypass path for map-pin requests.
 - Enables governance and observability (history + analytics) in one place.
-- Supports route preference ranking, fare estimation, and post-selection analytics.
+- Supports route-level filtering, fare estimation, and per-user filter analytics.
 
 ## Runtime Service Folder
 

@@ -96,6 +96,7 @@ class RouteAnalyticsBaseView(APIView):
     def _apply_filters(queryset, request):
         source = request.query_params.get("source")
         status_value = request.query_params.get("status")
+        route_filter = request.query_params.get("filter")
         from_date = request.query_params.get("from_date")
         to_date = request.query_params.get("to_date")
 
@@ -104,6 +105,16 @@ class RouteAnalyticsBaseView(APIView):
 
         if status_value in {RouteHistory.STATUS_SUCCESS, RouteHistory.STATUS_FAILED}:
             queryset = queryset.filter(status=status_value)
+
+        if route_filter in {
+            RouteHistory.PREFERENCE_OPTIMAL,
+            RouteHistory.PREFERENCE_FASTEST,
+            RouteHistory.PREFERENCE_CHEAPEST,
+            RouteHistory.PREFERENCE_BUS_ONLY,
+            RouteHistory.PREFERENCE_MICROBUS_ONLY,
+            RouteHistory.PREFERENCE_METRO_ONLY,
+        }:
+            queryset = queryset.filter(preference=route_filter)
 
         if from_date:
             parsed_from = parse_date(from_date)
@@ -214,6 +225,7 @@ class RouteAnalyticsOverviewView(RouteAnalyticsBaseView):
                 "filters": {
                     "source": request.query_params.get("source"),
                     "status": request.query_params.get("status"),
+                    "filter": request.query_params.get("filter"),
                     "from_date": request.query_params.get("from_date"),
                     "to_date": request.query_params.get("to_date"),
                 },
@@ -282,6 +294,7 @@ class RouteAnalyticsTopRoutesView(RouteAnalyticsBaseView):
                 "filters": {
                     "source": request.query_params.get("source"),
                     "status": request.query_params.get("status"),
+                    "filter": request.query_params.get("filter"),
                     "from_date": request.query_params.get("from_date"),
                     "to_date": request.query_params.get("to_date"),
                 },
@@ -290,10 +303,10 @@ class RouteAnalyticsTopRoutesView(RouteAnalyticsBaseView):
         )
 
 
-class RouteSelectionStatsView(RouteAnalyticsBaseView):
+class RouteFilterStatsView(RouteAnalyticsBaseView):
     @extend_schema(
         tags=["Admin Analytics"],
-        summary="Selected route type statistics",
+        summary="Per-user route filter statistics",
         parameters=[
             OpenApiParameter(
                 name="source",
@@ -320,9 +333,12 @@ class RouteSelectionStatsView(RouteAnalyticsBaseView):
         ],
         responses={
             200: inline_serializer(
-                name="RouteSelectionStatsResponse",
+                name="RouteFilterStatsResponse",
                 fields={
-                    "selections": serializers.ListField(child=serializers.DictField()),
+                    "by_filter": serializers.ListField(child=serializers.DictField()),
+                    "by_user_filter": serializers.ListField(
+                        child=serializers.DictField()
+                    ),
                     "filters": serializers.DictField(),
                 },
             )
@@ -333,19 +349,29 @@ class RouteSelectionStatsView(RouteAnalyticsBaseView):
             RouteHistory.objects.filter(has_result=True), request
         )
 
-        selections = (
-            queryset.exclude(selected_route_type__isnull=True)
-            .values("selected_route_type")
-            .annotate(count=Count("id"))
-            .order_by("-count")
+        by_filter = (
+            queryset.values("preference").annotate(count=Count("id")).order_by("-count")
+        )
+
+        by_user_filter = (
+            queryset.exclude(user__isnull=True)
+            .values("user_id", "user__email", "preference")
+            .annotate(
+                count=Count("id"),
+                avg_duration_seconds=Avg("total_duration_seconds"),
+                avg_fare=Avg("estimated_fare"),
+            )
+            .order_by("user_id", "-count")
         )
 
         return Response(
             {
-                "selections": list(selections),
+                "by_filter": list(by_filter),
+                "by_user_filter": list(by_user_filter),
                 "filters": {
                     "source": request.query_params.get("source"),
                     "status": request.query_params.get("status"),
+                    "filter": request.query_params.get("filter"),
                     "from_date": request.query_params.get("from_date"),
                     "to_date": request.query_params.get("to_date"),
                 },
@@ -431,6 +457,7 @@ class RouteUnresolvedStatsView(RouteAnalyticsBaseView):
                 "filters": {
                     "source": request.query_params.get("source"),
                     "status": request.query_params.get("status"),
+                    "filter": request.query_params.get("filter"),
                     "from_date": request.query_params.get("from_date"),
                     "to_date": request.query_params.get("to_date"),
                 },
